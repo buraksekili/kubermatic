@@ -319,24 +319,15 @@ func TestEncryptionAtRest(t *testing.T) {
 		testJig:    testJig,
 	}
 
-	// Test Case 1: Enable encryption at rest and verify it works
+	// Test Case 1:
+	// Enable encryption at rest and verify it works
 	logger.Info("Test Case 1 running...")
 	err = r.enableEAR(ctx, cluster)
 	if err != nil {
 		t.Fatalf("failed to enable encryption-at-rest: %v", err)
 	}
 
-	err = ensureAPIServerUpdated(ctx, logger, seedClient, cluster)
-	if err != nil {
-		t.Fatalf("User cluster API server does not contain configurations for encryption-at-rest")
-	}
-
-	err = encryptionJobFinishedSuccessfully(ctx, logger, seedClient)
-	if err != nil {
-		t.Fatalf("data-encryption Job failed to run, err: %v", err)
-	}
-
-	err = ensureDataEncryption(ctx, logger, cluster, secret, config, true, encKeyName)
+	err = r.ensureDataEncryption(ctx, cluster, secret, config, true, encKeyName)
 	if err != nil {
 		t.Fatalf("failed to ensure data encryption: %v", err)
 	}
@@ -346,7 +337,9 @@ func TestEncryptionAtRest(t *testing.T) {
 	// Rotate the encryption key to a new one.
 	// Verify that the new secret is not encrypted with the initial encryption key; instead it is encrypted with the new encryption key.
 	logger.Info("Test Case 2 running...")
-	if err := r.createEtcdBackup(ctx, cluster); err != nil {
+
+	err = r.createEtcdBackup(ctx, cluster)
+	if err != nil {
 		t.Fatalf("failed to create etcd backup: %v", err)
 	}
 
@@ -365,25 +358,17 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to create post-backup test secret: %v", err)
 	}
 
-	err = ensureDataEncryption(ctx, logger, cluster, postBackupSecret, config, true, encKeyName)
+	err = r.ensureDataEncryption(ctx, cluster, postBackupSecret, config, true, encKeyName)
 	if err != nil {
 		t.Fatalf("failed to ensure post-backup secret encryption: %v", err)
 	}
 
-	if err := r.rotateEncryptionKey(ctx, cluster); err != nil {
+	err = r.rotateEncryptionKey(ctx, cluster, secret, postBackupSecret)
+	if err != nil {
 		t.Fatalf("failed to rotate encryption key: %v", err)
 	}
 
-	err = ensureDataEncryption(ctx, logger, cluster, secret, config, true, rotatedKeyName)
-	if err != nil {
-		t.Fatalf("failed to ensure original secret encryption with rotated key: %v", err)
-	}
-	err = ensureDataEncryption(ctx, logger, cluster, postBackupSecret, config, true, rotatedKeyName)
-	if err != nil {
-		t.Fatalf("failed to ensure post-backup secret encryption with rotated key: %v", err)
-	}
-
-	// Test Case 3: Restore etcd backup created with previous key.
+	// Test Case 3: Restore etcd backup created with previous key, which is now the secondary key.
 	// After restore, verify the original secret (included in backup) is accessible.
 	// Verify that the original secret is still properly encrypted in etcd after restore.
 	// Verify the post-backup secret is not present as it wasn't in the backup.
@@ -393,22 +378,18 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to restore etcd backup: %v", err)
 	}
 
-	err = ensureDataAccessible(ctx, logger, userClient, secret.Name, secret.Namespace)
+	err = r.verifyDataAccess(ctx, cluster, secret, encKeyName)
 	if err != nil {
 		t.Fatalf("failed to access original secret after restore: %v", err)
 	}
 
-	err = ensureDataEncryption(ctx, logger, cluster, secret, config, true, encKeyName)
-	if err != nil {
-		t.Fatalf("original secret not properly encrypted after restore: %v", err)
-	}
-
-	err = verifySecretDoesNotExist(ctx, logger, userClient, postBackupSecret.Name, postBackupSecret.Namespace)
+	err = r.verifySecretDoesNotExist(ctx, postBackupSecret.Name, postBackupSecret.Namespace)
 	if err != nil {
 		t.Fatalf("post-backup secret unexpectedly exists after restore: %v", err)
 	}
 
-	// Test Case 4: After restoring, verify encryption still works for new secrets based on the initial encryption key.
+	// Test Case 4:
+	// After restoring etcd backup, verify encryption still works for new secrets.
 	logger.Info("Test Case 4 running...")
 	postRestoreSecret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -425,7 +406,7 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to create post-restore test secret: %v", err)
 	}
 
-	err = ensureDataEncryption(ctx, logger, cluster, postRestoreSecret, config, true, encKeyName)
+	err = r.ensureDataEncryption(ctx, cluster, postRestoreSecret, config, true, rotatedKeyName)
 	if err != nil {
 		t.Fatalf("encryption not working for new secrets after restore: %v", err)
 	}
@@ -438,34 +419,36 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to disable encryption-at-rest: %v", err)
 	}
 
-	err = ensureDataEncryption(ctx, logger, cluster, secret, config, false, encKeyName)
+	err = r.ensureDataEncryption(ctx, cluster, secret, config, false, encKeyName)
 	if err != nil {
 		t.Fatalf("failed to verify original secret is no longer encrypted: %v", err)
 	}
 }
 
-func ensureAPIServerUpdated(ctx context.Context, logger *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
-	logger.Info("waiting for ApiServer to contain configurations for encryption-at-rest")
+func (r *runner) ensureAPIServerUpdated(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	r.logger.Info("waiting for ApiServer to contain configurations for encryption-at-rest")
 
 	err := wait.PollImmediateLog(
-		ctx, logger, defaultInterval, defaultTimeout,
+		ctx, r.logger, defaultInterval, defaultTimeout,
 		func(ctx context.Context) (transient error, terminal error) {
-			updated, err := isApiserverUpdated(ctx, client, cluster)
+			updated, err := isApiserverUpdated(ctx, r.seedClient, cluster)
 			if err != nil {
 				return fmt.Errorf("failed to check apiserver status, %w", err), nil
 			}
 
 			if updated {
-				logger.Info("apiserver is updated")
 				return nil, nil
 			}
 
-			logger.Info("apiserver is not updated, retrying...")
 			return fmt.Errorf("apiserver is not updated"), nil
 		},
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	r.logger.Info("apiserver is updated")
+	return nil
 }
 
 func isApiserverUpdated(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) (bool, error) {
@@ -515,9 +498,8 @@ func clusterNamespace(cluster *kubermaticv1.Cluster) string {
 	return fmt.Sprintf("cluster-%s", cluster.Name)
 }
 
-func ensureDataEncryption(
+func (r *runner) ensureDataEncryption(
 	ctx context.Context,
-	logger *zap.SugaredLogger,
 	cluster *kubermaticv1.Cluster,
 	secret corev1.Secret,
 	config *rest.Config,
@@ -526,16 +508,16 @@ func ensureDataEncryption(
 ) error {
 	// k8s:enc:secretbox:v1:encryption-key-2025-04
 	regexPattern := fmt.Sprintf(`"Value"\s*:\s*"k8s:enc:secretbox:v1:%s:`, keyName)
-	logger.Info(
+	r.logger.Info(
 		"waiting to see if the secret data is encrypted with specific key",
 		"keyName", keyName,
 		"secret", ctrlruntimeclient.ObjectKeyFromObject(&secret).String(),
 	)
 
-	r := regexp.MustCompile(regexPattern)
+	reg := regexp.MustCompile(regexPattern)
 
 	err := wait.PollImmediateLog(
-		ctx, logger, defaultInterval, defaultTimeout*2,
+		ctx, r.logger, defaultInterval, defaultTimeout*2,
 		func(ctx context.Context) (transient error, terminal error) {
 			stdout, stderr, err := podexec.ExecuteCommand(
 				ctx,
@@ -557,14 +539,18 @@ func ensureDataEncryption(
 				return fmt.Errorf("failed to get data from etcd (stdout=%s, stderr=%s)", stdout, stderr), nil
 			}
 
-			logger.Info("stdout from etcdctl", "stdout", stdout)
+			r.logger.Info("stdout from etcdctl", "stdout", stdout)
 
-			encrypted := r.MatchString(stdout)
+			encrypted := reg.MatchString(stdout)
 			if encrypted == shouldBeEncrypted {
 				return nil, nil
 			}
 
-			return fmt.Errorf("etcd encryption at rest is not working as expected, got %v, expected %v", encrypted, shouldBeEncrypted), nil
+			return fmt.Errorf(
+				"etcd encryption at rest is not working as expected, got %v, expected %v",
+				encrypted,
+				shouldBeEncrypted,
+			), nil
 		},
 	)
 	return err
@@ -601,53 +587,76 @@ func (r *runner) enableEAR(ctx context.Context, cluster *kubermaticv1.Cluster) e
 		return fmt.Errorf("failed to patch cluster: %w", err)
 	}
 
-	r.logger.Info("Waiting for cluster to healthy after enabling encryption-at-rest")
-	if err := r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout); err != nil {
+	err = r.waitForClusterEncryption(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *runner) waitForClusterEncryption(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	r.logger.Info("Waiting for cluster to healthy")
+
+	err := r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout)
+	if err != nil {
 		return fmt.Errorf("Cluster did not get healthy after enabling encryption-at-rest: %w", err)
 	}
 
 	// wait for cluster.status.encryption.phase to be active and status.condition contains
 	// condition EncryptionControllerReconciledSuccessfully with status true, and
 	// condition EncryptionInitialized with status true.
-	r.logger.Info("waiting for cluster status to be updated after enabling encryption-at-rest")
-
 	err = wait.PollImmediateLog(
 		ctx, r.logger, defaultInterval, defaultTimeout,
 		func(ctx context.Context) (transient error, terminal error) {
-			c := cluster.DeepCopy()
-			if err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(c), c); err != nil {
-				return fmt.Errorf("failed to get cluster: %w", err), nil
-			}
-
-			if c.Status.Encryption == nil {
-				r.logger.Info("cluster.status.encryption is still nil, retrying...")
-
-				return fmt.Errorf("cluster.status.encryption is nil"), nil
-			}
-
-			if c.Status.Encryption.Phase != kubermaticv1.ClusterEncryptionPhaseActive {
-				r.logger.Info("cluster.status.encryption.phase is not active, retrying...")
-
-				return fmt.Errorf("cluster.status.encryption.phase is not active"), nil
-			}
-
-			if !c.Status.HasConditionValue(kubermaticv1.ClusterConditionEncryptionControllerReconcilingSuccess, corev1.ConditionTrue) {
-				r.logger.Info("condition %s is not set yet, retrying...", kubermaticv1.ClusterConditionEncryptionControllerReconcilingSuccess)
-
-				return fmt.Errorf("condition %s is not set yet", kubermaticv1.ClusterConditionEncryptionControllerReconcilingSuccess), nil
-			}
-
-			if !c.Status.HasConditionValue(kubermaticv1.ClusterConditionEncryptionInitialized, corev1.ConditionTrue) {
-				r.logger.Info("condition %s is not set yet, retrying...", kubermaticv1.ClusterConditionEncryptionInitialized)
-
-				return fmt.Errorf("condition %s is not set yet", kubermaticv1.ClusterConditionEncryptionInitialized), nil
+			if err := r.clusterEncryptionInitialized(ctx, cluster); err != nil {
+				return err, nil
 			}
 
 			r.logger.Info("cluster status is updated as expected after enabling encryption-at-rest")
 			return nil, nil
 		},
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureAPIServerUpdated(ctx, cluster)
+	if err != nil {
+		return fmt.Errorf("failed to ensure apiserver is updated: %w", err)
+	}
+
+	err = r.encryptionJobFinishedSuccessfully(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *runner) clusterEncryptionInitialized(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster: %w", err)
+	}
+
+	if cluster.Status.Encryption == nil {
+		return fmt.Errorf("cluster.status.encryption is nil")
+	}
+
+	if cluster.Status.Encryption.Phase != kubermaticv1.ClusterEncryptionPhaseActive {
+		return fmt.Errorf("cluster.status.encryption.phase is not active")
+	}
+
+	if !cluster.Status.HasConditionValue(kubermaticv1.ClusterConditionEncryptionControllerReconcilingSuccess, corev1.ConditionTrue) {
+		return fmt.Errorf("condition %s is not set yet", kubermaticv1.ClusterConditionEncryptionControllerReconcilingSuccess)
+	}
+
+	if !cluster.Status.HasConditionValue(kubermaticv1.ClusterConditionEncryptionInitialized, corev1.ConditionTrue) {
+		return fmt.Errorf("condition %s is not set yet", kubermaticv1.ClusterConditionEncryptionInitialized)
+	}
+
+	return nil
 }
 
 func (r *runner) disableEAR(ctx context.Context, cluster *kubermaticv1.Cluster) error {
@@ -702,13 +711,13 @@ func (r *runner) disableEAR(ctx context.Context, cluster *kubermaticv1.Cluster) 
 	return nil
 }
 
-func encryptionJobFinishedSuccessfully(ctx context.Context, logger *zap.SugaredLogger, c ctrlruntimeclient.Client) error {
-	logger.Info("waiting for the data-encryption job to finish successfully")
+func (r *runner) encryptionJobFinishedSuccessfully(ctx context.Context) error {
+	r.logger.Info("waiting for the data-encryption job to finish successfully")
 	err := wait.PollImmediateLog(
-		ctx, logger, defaultInterval, defaultTimeout,
+		ctx, r.logger, defaultInterval, defaultTimeout,
 		func(ctx context.Context) (transient error, terminal error) {
 			jobList := &batchv1.JobList{}
-			err := c.List(ctx, jobList, ctrlruntimeclient.MatchingLabels{
+			err := r.seedClient.List(ctx, jobList, ctrlruntimeclient.MatchingLabels{
 				resources.AppLabelKey: encryption.AppLabelValue,
 			})
 			if err != nil {
@@ -744,14 +753,55 @@ func encryptionJobFinishedSuccessfully(ctx context.Context, logger *zap.SugaredL
 		return err
 	}
 
+	r.logger.Info("data-encryption job finished successfully")
 	return nil
 }
 
-func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.Cluster) error {
-	r.logger.Info("rotating encryption key by adding a new key as secondary key (step 1 of rotation)")
+func (r *runner) rotateEncryptionKey(
+	ctx context.Context,
+	cluster *kubermaticv1.Cluster,
+	secretEncryptedWithOriginalKey corev1.Secret,
+	postBackupSecret corev1.Secret,
+) error {
+	err := r.addSecondaryKey(ctx, cluster)
+	if err != nil {
+		return fmt.Errorf("failed to add secondary key: %w", err)
+	}
 
+	err = r.verifyDataAccess(ctx, cluster, secretEncryptedWithOriginalKey, encKeyName)
+	if err != nil {
+		return fmt.Errorf("verification failed after adding secondary key: %w", err)
+	}
+
+	err = r.verifyDataAccess(ctx, cluster, postBackupSecret, rotatedKeyName)
+	if err != nil {
+		return fmt.Errorf("failed to access data with new primary key: %w", err)
+	}
+
+	err = r.updatePrimaryEncryptionKey(ctx, cluster)
+	if err != nil {
+		return fmt.Errorf("failed to update primary encryption key: %w", err)
+	}
+
+	// after rotating the key, the secret should be encrypted with the new primary key
+	err = r.verifyDataAccess(ctx, cluster, secretEncryptedWithOriginalKey, rotatedKeyName)
+	if err != nil {
+		return fmt.Errorf("failed to access data with the new primary key: %w", err)
+	}
+
+	err = r.verifyDataAccess(ctx, cluster, postBackupSecret, rotatedKeyName)
+	if err != nil {
+		return fmt.Errorf("failed to access data with new primary key: %w", err)
+	}
+
+	r.logger.Info("key rotation completed successfully - keeping old key as secondary for backup/restore testing")
+	return nil
+}
+
+// addSecondaryKey adds the new key as a secondary key and waits for control plane update
+func (r *runner) addSecondaryKey(ctx context.Context, cluster *kubermaticv1.Cluster) error {
 	if err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster); err != nil {
-		return err
+		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
 	cc := cluster.DeepCopy()
@@ -768,24 +818,25 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 
 	err := r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
 	if err != nil {
-		return fmt.Errorf("failed to patch cluster to add secondary key: %w", err)
+		return fmt.Errorf("failed to patch cluster: %w", err)
 	}
 
-	r.logger.Info("Waiting for control plane components to be rotated with new secondary key")
-	if err := r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout); err != nil {
-		return fmt.Errorf("Cluster did not get healthy after adding new encryption key: %w", err)
+	err = r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout)
+	if err != nil {
+		return fmt.Errorf("cluster did not get healthy after adding new key: %w", err)
 	}
 
-	r.logger.Info("Moving new key to primary position (step 2 of rotation)")
+	return nil
+}
 
-	if err := r.seedClient.Get(ctx, types.NamespacedName{
-		Name:      cluster.Name,
-		Namespace: cluster.Namespace,
-	}, cluster); err != nil {
-		return fmt.Errorf("failed to get current cluster state: %w", err)
+// updatePrimaryEncryptionKey moves the new key to primary position and waits for control plane update
+func (r *runner) updatePrimaryEncryptionKey(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
-	cc = cluster.DeepCopy()
+	cc := cluster.DeepCopy()
 	cluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
 		{
 			Name:  rotatedKeyName,
@@ -799,70 +850,27 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 
 	err = r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
 	if err != nil {
-		return fmt.Errorf("failed to patch cluster to set new key as primary: %w", err)
+		return fmt.Errorf("failed to patch cluster: %w", err)
 	}
 
-	r.logger.Info("Waiting for control plane components to be rotated with new primary key and for data re-encryption")
-	if err := r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout); err != nil {
-		return fmt.Errorf("Cluster did not get healthy after setting new primary key: %w", err)
-	}
-
-	err = wait.PollImmediateLog(
-		ctx, r.logger, defaultInterval, defaultTimeout*2,
-		func(ctx context.Context) (transient error, terminal error) {
-			c := &kubermaticv1.Cluster{}
-			if err := r.seedClient.Get(ctx, types.NamespacedName{
-				Name:      cluster.Name,
-				Namespace: cluster.Namespace,
-			}, c); err != nil {
-				return fmt.Errorf("failed to get cluster: %w", err), nil
-			}
-
-			if c.Status.Encryption == nil {
-				return fmt.Errorf("cluster.status.encryption is nil"), nil
-			}
-
-			if c.Status.Encryption.Phase != kubermaticv1.ClusterEncryptionPhaseActive {
-				return fmt.Errorf("cluster.status.encryption.phase is not active, currently: %s", c.Status.Encryption.Phase), nil
-			}
-
-			r.logger.Info("Data re-encryption completed with new primary key")
-			return nil, nil
-		},
-	)
+	err = r.waitForClusterEncryption(ctx, cluster)
 	if err != nil {
-		return fmt.Errorf("failed to wait for re-encryption with new key: %w", err)
+		return fmt.Errorf("cluster did not get healthy after swapping keys: %w", err)
 	}
 
-	r.logger.Info("Removing old encryption key (step 3 of rotation)")
-	if err := r.seedClient.Get(ctx, types.NamespacedName{
-		Name:      cluster.Name,
-		Namespace: cluster.Namespace,
-	}, cluster); err != nil {
-		return fmt.Errorf("failed to get current cluster state: %w", err)
-	}
+	return nil
+}
 
-	cc = cluster.DeepCopy()
-	cluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
-		{
-			Name:  rotatedKeyName,
-			Value: rotatedKeyVal,
-		},
-	}
-
-	err = r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
+// verifyDataAccess checks both data accessibility and encryption status
+func (r *runner) verifyDataAccess(ctx context.Context, cluster *kubermaticv1.Cluster, secret corev1.Secret, expectedKeyName string) error {
+	err := r.ensureDataAccessible(ctx, secret.Name, secret.Namespace)
 	if err != nil {
-		return fmt.Errorf("failed to patch cluster to remove old key: %w", err)
+		return fmt.Errorf("failed to access data: %w", err)
 	}
 
-	r.logger.Info("Waiting for cluster to be healthy after removing old encryption key")
-	if err := r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout); err != nil {
-		return fmt.Errorf("Cluster did not get healthy after removing old encryption key: %w", err)
-	}
-
-	err = ensureAPIServerUpdated(ctx, r.logger, r.seedClient, cluster)
+	err = r.ensureDataEncryption(ctx, cluster, secret, r.config, true, expectedKeyName)
 	if err != nil {
-		return fmt.Errorf("User cluster API server does not contain configurations for new encryption key: %w", err)
+		return fmt.Errorf("data not encrypted with expected key %s: %w", expectedKeyName, err)
 	}
 
 	return nil
@@ -934,7 +942,6 @@ func (r *runner) createEtcdBackup(ctx context.Context, cluster *kubermaticv1.Clu
 func (r *runner) restoreEtcdBackup(ctx context.Context, cluster *kubermaticv1.Cluster) error {
 	r.logger.Info("restoring etcd from backup")
 
-	// Find the backup name from EtcdBackupConfig status
 	var backupConfig kubermaticv1.EtcdBackupConfig
 	if err := r.seedClient.Get(ctx, types.NamespacedName{
 		Name:      "ear-test-backup",
@@ -947,12 +954,10 @@ func (r *runner) restoreEtcdBackup(ctx context.Context, cluster *kubermaticv1.Cl
 		return fmt.Errorf("no backups found in backup config status")
 	}
 
-	// Find the most recent completed backup
 	var latestBackupName string
 	var latestBackupTime time.Time
 	for _, backup := range backupConfig.Status.CurrentBackups {
 		if backup.BackupPhase == kubermaticv1.BackupStatusPhaseCompleted {
-			// ScheduledTime is already a metav1.Time object
 			if latestBackupName == "" || backup.ScheduledTime.After(latestBackupTime) {
 				latestBackupName = backup.BackupName
 				latestBackupTime = backup.ScheduledTime.Time
@@ -964,9 +969,8 @@ func (r *runner) restoreEtcdBackup(ctx context.Context, cluster *kubermaticv1.Cl
 		return fmt.Errorf("no completed backups found for restoration")
 	}
 
-	r.logger.Info("found backup for restoration", "backupName", latestBackupName)
+	r.logger.Infof("found backup for restoration: %s", latestBackupName)
 
-	// Create EtcdRestore object
 	restore := &kubermaticv1.EtcdRestore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "ear-test-restore",
@@ -1023,33 +1027,28 @@ func waitForEtcdRestore(ctx context.Context, log *zap.SugaredLogger, client ctrl
 	return nil
 }
 
-func ensureDataAccessible(ctx context.Context, logger *zap.SugaredLogger, client ctrlruntimeclient.Client, secretName, namespace string) error {
-	logger.Info("verifying data is accessible after restore")
-
-	err := wait.PollImmediateLog(
-		ctx, logger, defaultInterval, defaultTimeout,
+func (r *runner) ensureDataAccessible(ctx context.Context, secretName, namespace string) error {
+	return wait.PollImmediateLog(
+		ctx, r.logger, defaultInterval, defaultTimeout,
 		func(ctx context.Context) (transient error, terminal error) {
 			var secret corev1.Secret
-			if err := client.Get(ctx, types.NamespacedName{
+			if err := r.userClient.Get(ctx, types.NamespacedName{
 				Name:      secretName,
 				Namespace: namespace,
 			}, &secret); err != nil {
 				return fmt.Errorf("failed to get secret: %w", err), nil
 			}
 
-			logger.Info("secret successfully retrieved after restore")
 			return nil, nil
 		},
 	)
-
-	return err
 }
 
-func verifySecretDoesNotExist(ctx context.Context, logger *zap.SugaredLogger, client ctrlruntimeclient.Client, secretName, namespace string) error {
-	logger.Info("verifying secret does not exist", "name", secretName, "namespace", namespace)
+func (r *runner) verifySecretDoesNotExist(ctx context.Context, secretName, namespace string) error {
+	r.logger.Info("verifying secret does not exist", "name", secretName, "namespace", namespace)
 
 	var secret corev1.Secret
-	err := client.Get(ctx, types.NamespacedName{
+	err := r.userClient.Get(ctx, types.NamespacedName{
 		Name:      secretName,
 		Namespace: namespace,
 	}, &secret)
@@ -1058,10 +1057,9 @@ func verifySecretDoesNotExist(ctx context.Context, logger *zap.SugaredLogger, cl
 		return fmt.Errorf("secret still exists when it shouldn't")
 	}
 
-	if ctrlruntimeclient.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("error checking if secret exists: %w", err)
+	if ctrlruntimeclient.IgnoreNotFound(err) == nil {
+		return nil
 	}
 
-	logger.Info("confirmed secret does not exist", "name", secretName)
-	return nil
+	return fmt.Errorf("failed to check if secret exists: %w", err)
 }
