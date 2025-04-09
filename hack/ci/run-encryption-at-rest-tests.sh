@@ -52,7 +52,7 @@ source hack/ci/setup-kubermatic-backups-in-kind.sh
 
 echodate "Running encryption-at-rest tests..."
 
-go_test encryption_at_rest -timeout 120m -tags e2e,ee -v ./pkg/test/e2e/encryption-at-rest \
+go_test encryption_at_rest -timeout 60m -tags e2e,ee -v ./pkg/test/e2e/encryption-at-rest \
   -byo-kkp-datacenter byo-kubernetes \
   -ssh-pub-key "$(cat "$E2E_SSH_PUBKEY")"
 
