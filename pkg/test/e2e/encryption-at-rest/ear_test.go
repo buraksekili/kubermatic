@@ -79,18 +79,30 @@ type runner struct {
 
 func ensureEtcdLauncher(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
 	log.Info("ensuring etcd-launcher is enabled...")
-	if err := patchCluster(ctx, client, cluster, func(c *kubermaticv1.Cluster) error {
-		if c.Spec.Features == nil {
-			c.Spec.Features = map[string]bool{}
+
+	if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
+		return fmt.Errorf("failed to get cluster: %w", err)
+	}
+
+	if !cluster.Spec.Features[kubermaticv1.ClusterFeatureEtcdLauncher] {
+		log.Info("enabling etcd-launcher...")
+		if err := patchCluster(ctx, client, cluster, func(c *kubermaticv1.Cluster) error {
+			if c.Spec.Features == nil {
+				c.Spec.Features = map[string]bool{}
+			}
+			c.Spec.Features[kubermaticv1.ClusterFeatureEtcdLauncher] = true
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to enable etcd-launcher: %w", err)
 		}
-		c.Spec.Features[kubermaticv1.ClusterFeatureEtcdLauncher] = true
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to enable etcd-launcher: %w", err)
 	}
 
 	if err := waitForClusterHealthy(ctx, log, client, cluster); err != nil {
 		return fmt.Errorf("etcd cluster is not healthy: %w", err)
+	}
+
+	if err := waitForStrictTLSMode(ctx, log, client, cluster); err != nil {
+		return fmt.Errorf("etcd cluster is not running in strict TLS peer mode: %w", err)
 	}
 
 	active, err := isEtcdLauncherActive(ctx, client, cluster)
@@ -149,7 +161,6 @@ func waitForClusterHealthy(ctx context.Context, log *zap.SugaredLogger, client c
 	if err := wait.PollImmediateLog(
 		ctx, log, defaultInterval, defaultTimeout,
 		func(ctx context.Context) (transient error, terminal error) {
-			// refresh cluster object for updated health status
 			if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
 				return fmt.Errorf("failed to get cluster: %w", err), nil
 			}
@@ -173,6 +184,56 @@ func waitForClusterHealthy(ctx context.Context, log *zap.SugaredLogger, client c
 	log.Infof("etcd cluster became healthy after %v.", time.Since(before))
 
 	return nil
+}
+
+func waitForStrictTLSMode(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
+	before := time.Now()
+	if err := wait.PollImmediateLog(ctx, log, defaultInterval, defaultTimeout, func(ctx context.Context) (transient error, terminal error) {
+		// refresh cluster object for updated health status
+		if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
+			return fmt.Errorf("failed to get cluster: %w", err), nil
+		}
+
+		healthy, err := isStrictTLSEnabled(ctx, client, cluster)
+		if err != nil {
+			log.Infof("failed to check cluster etcd health status: %v", err)
+			return nil, nil
+		}
+
+		if !healthy {
+			return fmt.Errorf("etcd cluster is not running in strict TLS peer mode"), nil
+		}
+
+		return nil, nil
+	}); err != nil {
+		return fmt.Errorf("failed to check etcd health status: %w", err)
+	}
+
+	log.Infof("etcd cluster is running in strict TLS mode after %v.", time.Since(before))
+
+	return nil
+}
+
+func isStrictTLSEnabled(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) (bool, error) {
+	etcdHealthy, err := isClusterEtcdHealthy(ctx, client, cluster)
+	if err != nil {
+		return false, fmt.Errorf("etcd health check failed: %w", err)
+	}
+
+	sts := &appsv1.StatefulSet{}
+	if err := client.Get(ctx, types.NamespacedName{Name: "etcd", Namespace: clusterNamespace(cluster)}, sts); err != nil {
+		return false, fmt.Errorf("failed to get StatefulSet: %w", err)
+	}
+
+	strictModeEnvSet := false
+
+	for _, env := range sts.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "PEER_TLS_MODE" && env.Value == "strict" {
+			strictModeEnvSet = true
+		}
+	}
+
+	return etcdHealthy && strictModeEnvSet, nil
 }
 
 func patchCluster(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster, patch func(cluster *kubermaticv1.Cluster) error) error {
@@ -223,6 +284,11 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to setup test environment: %v", err)
 	}
 
+	err = ensureEtcdLauncher(ctx, logger, seedClient, cluster)
+	if err != nil {
+		t.Fatalf("failed to enable etcd-launcher: %v", err)
+	}
+
 	userClient, err := testJig.ClusterClient(ctx)
 	if err != nil {
 		t.Fatalf("failed to create user cluster client: %v", err)
@@ -257,11 +323,6 @@ func TestEncryptionAtRest(t *testing.T) {
 	err = r.enableEAR(ctx, cluster)
 	if err != nil {
 		t.Fatalf("failed to enable encryption-at-rest: %v", err)
-	}
-
-	err = ensureEtcdLauncher(ctx, logger, seedClient, cluster)
-	if err != nil {
-		t.Fatalf("failed to enable etcd-launcher: %v", err)
 	}
 
 	err = ensureAPIServerUpdated(ctx, logger, seedClient, cluster)
