@@ -272,7 +272,7 @@ func TestEncryptionAtRest(t *testing.T) {
 	}
 
 	testJig := jig.NewBYOCluster(seedClient, logger, credentials)
-	testJig.ClusterJig.WithTestName("encryption-at-rest").WithFeatures(map[string]bool{
+	testJig.ClusterJig.WithTestName("ear").WithFeatures(map[string]bool{
 		kubermaticv1.ClusterFeatureEtcdLauncher: true,
 	})
 
