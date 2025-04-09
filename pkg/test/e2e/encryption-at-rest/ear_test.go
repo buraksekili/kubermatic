@@ -154,6 +154,7 @@ func isClusterEtcdHealthy(ctx context.Context, client ctrlruntimeclient.Client, 
 }
 
 func waitForClusterHealthy(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
+	log.Info("waiting for cluster to become healthy")
 	before := time.Now()
 
 	time.Sleep(10 * time.Second)
@@ -387,7 +388,8 @@ func TestEncryptionAtRest(t *testing.T) {
 	// Verify that the original secret is still properly encrypted in etcd after restore.
 	// Verify the post-backup secret is not present as it wasn't in the backup.
 	logger.Info("Test Case 3 running...")
-	if err := r.restoreEtcdBackup(ctx, cluster); err != nil {
+	err = r.restoreEtcdBackup(ctx, cluster)
+	if err != nil {
 		t.Fatalf("failed to restore etcd backup: %v", err)
 	}
 
@@ -407,6 +409,7 @@ func TestEncryptionAtRest(t *testing.T) {
 	}
 
 	// Test Case 4: After restoring, verify encryption still works for new secrets based on the initial encryption key.
+	logger.Info("Test Case 4 running...")
 	postRestoreSecret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "post-restore-",
@@ -985,39 +988,38 @@ func (r *runner) restoreEtcdBackup(ctx context.Context, cluster *kubermaticv1.Cl
 		return fmt.Errorf("failed to create etcd restore: %w", err)
 	}
 
-	// Wait for restoration to complete
-	r.logger.Info("waiting for etcd restore to complete")
-	err = wait.PollImmediateLog(
-		ctx, r.logger, defaultInterval, defaultTimeout*3,
-		func(ctx context.Context) (transient error, terminal error) {
-			var currentRestore kubermaticv1.EtcdRestore
-			if err := r.seedClient.Get(ctx, types.NamespacedName{
-				Name:      restore.Name,
-				Namespace: restore.Namespace,
-			}, &currentRestore); err != nil {
-				return fmt.Errorf("failed to get restore status: %w", err), nil
-			}
-
-			phase := currentRestore.Status.Phase
-			r.logger.Info("current restore phase", "phase", phase)
-
-			if phase == kubermaticv1.EtcdRestorePhaseCompleted {
-				r.logger.Info("etcd restore completed successfully")
-				return nil, nil
-			}
-
-			return fmt.Errorf("restore in progress, current phase: %s", phase), nil
-		},
-	)
+	err = waitForEtcdRestore(ctx, r.logger, r.seedClient, restore)
 	if err != nil {
-		return fmt.Errorf("failed waiting for etcd restore: %w", err)
+		return fmt.Errorf("failed to wait for etcd restore: %w", err)
 	}
 
-	r.logger.Info("waiting for cluster to become healthy after restore")
-	if err := r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout); err != nil {
+	err = waitForClusterHealthy(ctx, r.logger, r.seedClient, cluster)
+	if err != nil {
 		return fmt.Errorf("cluster did not become healthy after restore: %w", err)
 	}
 
+	return nil
+}
+
+func waitForEtcdRestore(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, restore *kubermaticv1.EtcdRestore) error {
+	log.Info("waiting for etcd restore to complete")
+
+	before := time.Now()
+	if err := wait.PollImmediateLog(ctx, log, 10*time.Second, 5*time.Minute, func(ctx context.Context) (transient error, terminal error) {
+		if err := client.Get(ctx, types.NamespacedName{Name: restore.Name, Namespace: restore.Namespace}, restore); err != nil {
+			return fmt.Errorf("failed to get restore status: %w", err), nil
+		}
+
+		if restore.Status.Phase == kubermaticv1.EtcdRestorePhaseCompleted {
+			return nil, nil
+		}
+
+		return fmt.Errorf("restore in progress, current phase: %s", restore.Status.Phase), nil
+	}); err != nil {
+		return fmt.Errorf("failed waiting for restore to complete: %w (%v)", err, restore.Status)
+	}
+
+	log.Infof("etcd restore finished after %v.", time.Since(before))
 	return nil
 }
 
