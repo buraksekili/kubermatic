@@ -747,16 +747,12 @@ func encryptionJobFinishedSuccessfully(ctx context.Context, logger *zap.SugaredL
 func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.Cluster) error {
 	r.logger.Info("rotating encryption key by adding a new key as secondary key (step 1 of rotation)")
 
-	// Get fresh cluster object before making changes
-	currentCluster := &kubermaticv1.Cluster{}
-	if err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(currentCluster), currentCluster); err != nil {
-		return fmt.Errorf("failed to get current cluster state: %w", err)
+	if err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster); err != nil {
+		return err
 	}
 
-	cc := currentCluster.DeepCopy()
-
-	// Step 1: Add the new key as a SECONDARY key (at the end of the keys list)
-	currentCluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
+	cc := cluster.DeepCopy()
+	cluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
 		{
 			Name:  encKeyName,
 			Value: encKeyVal,
@@ -767,7 +763,7 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 		},
 	}
 
-	err := r.seedClient.Patch(ctx, currentCluster, ctrlruntimeclient.MergeFrom(cc))
+	err := r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
 	if err != nil {
 		return fmt.Errorf("failed to patch cluster to add secondary key: %w", err)
 	}
@@ -777,19 +773,17 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 		return fmt.Errorf("Cluster did not get healthy after adding new encryption key: %w", err)
 	}
 
-	// Step 2: Move the new key to the PRIMARY position (at the beginning of the keys list)
 	r.logger.Info("Moving new key to primary position (step 2 of rotation)")
 
-	// Get fresh cluster object before making changes
 	if err := r.seedClient.Get(ctx, types.NamespacedName{
 		Name:      cluster.Name,
 		Namespace: cluster.Namespace,
-	}, currentCluster); err != nil {
+	}, cluster); err != nil {
 		return fmt.Errorf("failed to get current cluster state: %w", err)
 	}
 
-	cc = currentCluster.DeepCopy()
-	currentCluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
+	cc = cluster.DeepCopy()
+	cluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
 		{
 			Name:  rotatedKeyName,
 			Value: rotatedKeyVal,
@@ -800,7 +794,7 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 		},
 	}
 
-	err = r.seedClient.Patch(ctx, currentCluster, ctrlruntimeclient.MergeFrom(cc))
+	err = r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
 	if err != nil {
 		return fmt.Errorf("failed to patch cluster to set new key as primary: %w", err)
 	}
@@ -810,7 +804,6 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 		return fmt.Errorf("Cluster did not get healthy after setting new primary key: %w", err)
 	}
 
-	// Wait for re-encryption with new key to complete (cluster's encryption phase to be Active)
 	err = wait.PollImmediateLog(
 		ctx, r.logger, defaultInterval, defaultTimeout*2,
 		func(ctx context.Context) (transient error, terminal error) {
@@ -838,26 +831,23 @@ func (r *runner) rotateEncryptionKey(ctx context.Context, cluster *kubermaticv1.
 		return fmt.Errorf("failed to wait for re-encryption with new key: %w", err)
 	}
 
-	// Step 3: Remove the old key after re-encryption is complete
 	r.logger.Info("Removing old encryption key (step 3 of rotation)")
-
-	// Get fresh cluster object before making changes
 	if err := r.seedClient.Get(ctx, types.NamespacedName{
 		Name:      cluster.Name,
 		Namespace: cluster.Namespace,
-	}, currentCluster); err != nil {
+	}, cluster); err != nil {
 		return fmt.Errorf("failed to get current cluster state: %w", err)
 	}
 
-	cc = currentCluster.DeepCopy()
-	currentCluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
+	cc = cluster.DeepCopy()
+	cluster.Spec.EncryptionConfiguration.Secretbox.Keys = []kubermaticv1.SecretboxKey{
 		{
 			Name:  rotatedKeyName,
 			Value: rotatedKeyVal,
 		},
 	}
 
-	err = r.seedClient.Patch(ctx, currentCluster, ctrlruntimeclient.MergeFrom(cc))
+	err = r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
 	if err != nil {
 		return fmt.Errorf("failed to patch cluster to remove old key: %w", err)
 	}
