@@ -23,7 +23,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"regexp"
@@ -42,7 +41,6 @@ import (
 	"k8c.io/kubermatic/v2/pkg/util/podexec"
 	"k8c.io/kubermatic/v2/pkg/util/wait"
 
-	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,185 +75,6 @@ type runner struct {
 	testJig    *jig.TestJig
 }
 
-func ensureEtcdLauncher(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
-	log.Info("ensuring etcd-launcher is enabled...")
-
-	if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	if !cluster.Spec.Features[kubermaticv1.ClusterFeatureEtcdLauncher] {
-		log.Info("enabling etcd-launcher...")
-		if err := patchCluster(ctx, client, cluster, func(c *kubermaticv1.Cluster) error {
-			if c.Spec.Features == nil {
-				c.Spec.Features = map[string]bool{}
-			}
-			c.Spec.Features[kubermaticv1.ClusterFeatureEtcdLauncher] = true
-			return nil
-		}); err != nil {
-			return fmt.Errorf("failed to enable etcd-launcher: %w", err)
-		}
-	}
-
-	if err := waitForClusterHealthy(ctx, log, client, cluster); err != nil {
-		return fmt.Errorf("etcd cluster is not healthy: %w", err)
-	}
-
-	if err := waitForStrictTLSMode(ctx, log, client, cluster); err != nil {
-		return fmt.Errorf("etcd cluster is not running in strict TLS peer mode: %w", err)
-	}
-
-	active, err := isEtcdLauncherActive(ctx, client, cluster)
-	if err != nil {
-		return fmt.Errorf("failed to check StatefulSet command: %w", err)
-	}
-
-	if !active {
-		return errors.New("feature flag had no effect on the StatefulSet")
-	}
-
-	return nil
-}
-
-func isEtcdLauncherActive(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) (bool, error) {
-	etcdHealthy, err := isClusterEtcdHealthy(ctx, client, cluster)
-	if err != nil {
-		return false, fmt.Errorf("etcd health check failed: %w", err)
-	}
-
-	sts := &appsv1.StatefulSet{}
-	if err := client.Get(ctx, types.NamespacedName{Name: "etcd", Namespace: clusterNamespace(cluster)}, sts); err != nil {
-		return false, fmt.Errorf("failed to get StatefulSet: %w", err)
-	}
-
-	return etcdHealthy && sts.Spec.Template.Spec.Containers[0].Command[0] == "/opt/bin/etcd-launcher", nil
-}
-
-// isClusterEtcdHealthy checks whether the etcd status on the Cluster object
-// is Healthy and the StatefulSet is fully rolled out.
-func isClusterEtcdHealthy(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) (bool, error) {
-	// refresh cluster status
-	if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
-		return false, fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	sts := &appsv1.StatefulSet{}
-	if err := client.Get(ctx, types.NamespacedName{Name: "etcd", Namespace: clusterNamespace(cluster)}, sts); err != nil {
-		return false, fmt.Errorf("failed to get StatefulSet: %w", err)
-	}
-
-	clusterSize := int32(3)
-	if size := cluster.Spec.ComponentsOverride.Etcd.ClusterSize; size != nil {
-		clusterSize = *size
-	}
-
-	return cluster.Status.ExtendedHealth.Etcd == kubermaticv1.HealthStatusUp &&
-		clusterSize == sts.Status.ReadyReplicas, nil
-}
-
-func waitForClusterHealthy(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
-	log.Info("waiting for cluster to become healthy")
-	before := time.Now()
-
-	time.Sleep(10 * time.Second)
-
-	if err := wait.PollImmediateLog(
-		ctx, log, defaultInterval, defaultTimeout,
-		func(ctx context.Context) (transient error, terminal error) {
-			if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
-				return fmt.Errorf("failed to get cluster: %w", err), nil
-			}
-
-			healthy, err := isClusterEtcdHealthy(ctx, client, cluster)
-			if err != nil {
-				log.Infof("failed to check cluster etcd health status: %v", err)
-				return nil, nil
-			}
-
-			if !healthy {
-				return fmt.Errorf("etcd cluster is not healthy"), nil
-			}
-
-			return nil, nil
-		},
-	); err != nil {
-		return fmt.Errorf("failed to check etcd health status: %w", err)
-	}
-
-	log.Infof("etcd cluster became healthy after %v.", time.Since(before))
-
-	return nil
-}
-
-func waitForStrictTLSMode(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) error {
-	before := time.Now()
-	if err := wait.PollImmediateLog(ctx, log, defaultInterval, defaultTimeout, func(ctx context.Context) (transient error, terminal error) {
-		// refresh cluster object for updated health status
-		if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
-			return fmt.Errorf("failed to get cluster: %w", err), nil
-		}
-
-		healthy, err := isStrictTLSEnabled(ctx, client, cluster)
-		if err != nil {
-			log.Infof("failed to check cluster etcd health status: %v", err)
-			return nil, nil
-		}
-
-		if !healthy {
-			return fmt.Errorf("etcd cluster is not running in strict TLS peer mode"), nil
-		}
-
-		return nil, nil
-	}); err != nil {
-		return fmt.Errorf("failed to check etcd health status: %w", err)
-	}
-
-	log.Infof("etcd cluster is running in strict TLS mode after %v.", time.Since(before))
-
-	return nil
-}
-
-func isStrictTLSEnabled(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) (bool, error) {
-	etcdHealthy, err := isClusterEtcdHealthy(ctx, client, cluster)
-	if err != nil {
-		return false, fmt.Errorf("etcd health check failed: %w", err)
-	}
-
-	sts := &appsv1.StatefulSet{}
-	if err := client.Get(ctx, types.NamespacedName{Name: "etcd", Namespace: clusterNamespace(cluster)}, sts); err != nil {
-		return false, fmt.Errorf("failed to get StatefulSet: %w", err)
-	}
-
-	strictModeEnvSet := false
-
-	for _, env := range sts.Spec.Template.Spec.Containers[0].Env {
-		if env.Name == "PEER_TLS_MODE" && env.Value == "strict" {
-			strictModeEnvSet = true
-		}
-	}
-
-	return etcdHealthy && strictModeEnvSet, nil
-}
-
-func patchCluster(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster, patch func(cluster *kubermaticv1.Cluster) error) error {
-	if err := client.Get(ctx, types.NamespacedName{Name: cluster.Name}, cluster); err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	oldCluster := cluster.DeepCopy()
-	if err := patch(cluster); err != nil {
-		return err
-	}
-
-	if err := client.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(oldCluster)); err != nil {
-		return fmt.Errorf("failed to patch cluster: %w", err)
-	}
-
-	time.Sleep(10 * time.Second)
-
-	return nil
-}
-
 func TestEncryptionAtRest(t *testing.T) {
 	ctx := context.Background()
 	rawLogger := log.NewFromOptions(logOptions)
@@ -285,9 +104,9 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to setup test environment: %v", err)
 	}
 
-	err = ensureEtcdLauncher(ctx, logger, seedClient, cluster)
+	err = testJig.WaitForHealthyControlPlane(ctx, defaultTimeout)
 	if err != nil {
-		t.Fatalf("failed to enable etcd-launcher: %v", err)
+		t.Fatalf("Cluster did not get healthy after enabling encryption-at-rest: %v", err)
 	}
 
 	userClient, err := testJig.ClusterClient(ctx)
@@ -334,7 +153,7 @@ func TestEncryptionAtRest(t *testing.T) {
 
 	// Test Case 2:
 	// Create an etcd backup for testing. Then, create a new secret that is not going to be part of the backup.
-	// Rotate the encryption key to a new one.
+	// Rotate the encryption key to a new one. So, update the primary encryption key to the new one: `rotatedKeyName`.
 	// Verify that the new secret is not encrypted with the initial encryption key; instead it is encrypted with the new encryption key.
 	logger.Info("Test Case 2 running...")
 
@@ -378,11 +197,14 @@ func TestEncryptionAtRest(t *testing.T) {
 		t.Fatalf("failed to restore etcd backup: %v", err)
 	}
 
-	err = r.verifyDataAccess(ctx, cluster, secret, encKeyName)
+	// after restoring, verify that the secret is still encrypted with the current primary key.
+	err = r.verifyDataAccess(ctx, cluster, secret, rotatedKeyName)
 	if err != nil {
 		t.Fatalf("failed to access original secret after restore: %v", err)
 	}
 
+	// since postBackupSecret was created after the backup was created,
+	// it should not be part of the backup restore.
 	err = r.verifySecretDoesNotExist(ctx, postBackupSecret.Name, postBackupSecret.Namespace)
 	if err != nil {
 		t.Fatalf("post-backup secret unexpectedly exists after restore: %v", err)
@@ -508,10 +330,9 @@ func (r *runner) ensureDataEncryption(
 ) error {
 	// k8s:enc:secretbox:v1:encryption-key-2025-04
 	regexPattern := fmt.Sprintf(`"Value"\s*:\s*"k8s:enc:secretbox:v1:%s:`, keyName)
-	r.logger.Info(
-		"waiting to see if the secret data is encrypted with specific key",
-		"keyName", keyName,
-		"secret", ctrlruntimeclient.ObjectKeyFromObject(&secret).String(),
+	r.logger.Infof(
+		"check if the secret data is encrypted with specific key, keyName: %s, secret: %s",
+		keyName, ctrlruntimeclient.ObjectKeyFromObject(&secret).String(),
 	)
 
 	reg := regexp.MustCompile(regexPattern)
@@ -773,11 +594,6 @@ func (r *runner) rotateEncryptionKey(
 		return fmt.Errorf("verification failed after adding secondary key: %w", err)
 	}
 
-	err = r.verifyDataAccess(ctx, cluster, postBackupSecret, rotatedKeyName)
-	if err != nil {
-		return fmt.Errorf("failed to access data with new primary key: %w", err)
-	}
-
 	err = r.updatePrimaryEncryptionKey(ctx, cluster)
 	if err != nil {
 		return fmt.Errorf("failed to update primary encryption key: %w", err)
@@ -798,9 +614,11 @@ func (r *runner) rotateEncryptionKey(
 	return nil
 }
 
-// addSecondaryKey adds the new key as a secondary key and waits for control plane update
 func (r *runner) addSecondaryKey(ctx context.Context, cluster *kubermaticv1.Cluster) error {
-	if err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster); err != nil {
+	r.logger.Info("adding secondary key")
+
+	err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster)
+	if err != nil {
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
@@ -816,21 +634,23 @@ func (r *runner) addSecondaryKey(ctx context.Context, cluster *kubermaticv1.Clus
 		},
 	}
 
-	err := r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
+	err = r.seedClient.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(cc))
 	if err != nil {
 		return fmt.Errorf("failed to patch cluster: %w", err)
 	}
 
-	err = r.testJig.WaitForHealthyControlPlane(ctx, defaultTimeout)
+	err = r.waitForClusterEncryption(ctx, cluster)
 	if err != nil {
 		return fmt.Errorf("cluster did not get healthy after adding new key: %w", err)
 	}
 
+	r.logger.Info("secondary key added successfully")
 	return nil
 }
 
-// updatePrimaryEncryptionKey moves the new key to primary position and waits for control plane update
 func (r *runner) updatePrimaryEncryptionKey(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	r.logger.Info("updating primary encryption key")
+
 	err := r.seedClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(cluster), cluster)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster: %w", err)
@@ -861,8 +681,13 @@ func (r *runner) updatePrimaryEncryptionKey(ctx context.Context, cluster *kuberm
 	return nil
 }
 
-// verifyDataAccess checks both data accessibility and encryption status
 func (r *runner) verifyDataAccess(ctx context.Context, cluster *kubermaticv1.Cluster, secret corev1.Secret, expectedKeyName string) error {
+	r.logger.Infof(
+		"verifying data access, expectedKeyName: %s, secret: %s",
+		expectedKeyName,
+		ctrlruntimeclient.ObjectKeyFromObject(&secret).String(),
+	)
+
 	err := r.ensureDataAccessible(ctx, secret.Name, secret.Namespace)
 	if err != nil {
 		return fmt.Errorf("failed to access data: %w", err)
@@ -873,6 +698,7 @@ func (r *runner) verifyDataAccess(ctx context.Context, cluster *kubermaticv1.Clu
 		return fmt.Errorf("data not encrypted with expected key %s: %w", expectedKeyName, err)
 	}
 
+	r.logger.Info("data verified successfully")
 	return nil
 }
 
@@ -926,9 +752,7 @@ func (r *runner) createEtcdBackup(ctx context.Context, cluster *kubermaticv1.Clu
 				r.logger.Infof("backup not completed yet, backupName: %s, backupPhase: %s", backup.BackupName, backup.BackupPhase)
 			}
 
-			r.logger.Infof("backupConfig.Status %+v", backupConfig.Status)
-
-			return fmt.Errorf("backup not completed yet"), nil
+			return fmt.Errorf("backup not completed yet, status: %+v", backupConfig.Status), nil
 		},
 	)
 	if err != nil {
@@ -992,12 +816,12 @@ func (r *runner) restoreEtcdBackup(ctx context.Context, cluster *kubermaticv1.Cl
 		return fmt.Errorf("failed to create etcd restore: %w", err)
 	}
 
-	err = waitForEtcdRestore(ctx, r.logger, r.seedClient, restore)
+	err = r.waitForEtcdRestore(ctx, restore)
 	if err != nil {
 		return fmt.Errorf("failed to wait for etcd restore: %w", err)
 	}
 
-	err = waitForClusterHealthy(ctx, r.logger, r.seedClient, cluster)
+	err = r.waitForClusterEncryption(ctx, cluster)
 	if err != nil {
 		return fmt.Errorf("cluster did not become healthy after restore: %w", err)
 	}
@@ -1005,12 +829,12 @@ func (r *runner) restoreEtcdBackup(ctx context.Context, cluster *kubermaticv1.Cl
 	return nil
 }
 
-func waitForEtcdRestore(ctx context.Context, log *zap.SugaredLogger, client ctrlruntimeclient.Client, restore *kubermaticv1.EtcdRestore) error {
-	log.Info("waiting for etcd restore to complete")
+func (r *runner) waitForEtcdRestore(ctx context.Context, restore *kubermaticv1.EtcdRestore) error {
+	r.logger.Info("waiting for etcd restore to complete")
 
 	before := time.Now()
-	if err := wait.PollImmediateLog(ctx, log, 10*time.Second, 5*time.Minute, func(ctx context.Context) (transient error, terminal error) {
-		if err := client.Get(ctx, types.NamespacedName{Name: restore.Name, Namespace: restore.Namespace}, restore); err != nil {
+	if err := wait.PollImmediateLog(ctx, r.logger, defaultInterval, defaultTimeout, func(ctx context.Context) (transient error, terminal error) {
+		if err := r.seedClient.Get(ctx, types.NamespacedName{Name: restore.Name, Namespace: restore.Namespace}, restore); err != nil {
 			return fmt.Errorf("failed to get restore status: %w", err), nil
 		}
 
@@ -1023,7 +847,7 @@ func waitForEtcdRestore(ctx context.Context, log *zap.SugaredLogger, client ctrl
 		return fmt.Errorf("failed waiting for restore to complete: %w (%v)", err, restore.Status)
 	}
 
-	log.Infof("etcd restore finished after %v.", time.Since(before))
+	r.logger.Infof("etcd restore finished after %v.", time.Since(before))
 	return nil
 }
 
@@ -1032,10 +856,11 @@ func (r *runner) ensureDataAccessible(ctx context.Context, secretName, namespace
 		ctx, r.logger, defaultInterval, defaultTimeout,
 		func(ctx context.Context) (transient error, terminal error) {
 			var secret corev1.Secret
-			if err := r.userClient.Get(ctx, types.NamespacedName{
+			err := r.userClient.Get(ctx, types.NamespacedName{
 				Name:      secretName,
 				Namespace: namespace,
-			}, &secret); err != nil {
+			}, &secret)
+			if err != nil {
 				return fmt.Errorf("failed to get secret: %w", err), nil
 			}
 
@@ -1045,21 +870,37 @@ func (r *runner) ensureDataAccessible(ctx context.Context, secretName, namespace
 }
 
 func (r *runner) verifySecretDoesNotExist(ctx context.Context, secretName, namespace string) error {
-	r.logger.Info("verifying secret does not exist", "name", secretName, "namespace", namespace)
+	r.logger.Infof(
+		"verifying secret does not exist, secretName: %s, namespace: %s",
+		secretName, namespace,
+	)
 
-	var secret corev1.Secret
-	err := r.userClient.Get(ctx, types.NamespacedName{
-		Name:      secretName,
-		Namespace: namespace,
-	}, &secret)
+	err := wait.PollImmediateLog(
+		ctx,
+		r.logger,
+		defaultInterval,
+		defaultTimeout,
+		func(ctx context.Context) (transient error, terminal error) {
+			var secret corev1.Secret
+			err := r.userClient.Get(ctx, types.NamespacedName{
+				Name:      secretName,
+				Namespace: namespace,
+			}, &secret)
+			if err == nil {
+				return fmt.Errorf("secret still exists when it shouldn't"), nil
+			}
 
-	if err == nil {
-		return fmt.Errorf("secret still exists when it shouldn't")
+			if ctrlruntimeclient.IgnoreNotFound(err) == nil {
+				return nil, nil
+			}
+
+			return fmt.Errorf("failed to check if secret exists: %w", err), nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to verify secret does not exist: %w", err)
 	}
 
-	if ctrlruntimeclient.IgnoreNotFound(err) == nil {
-		return nil
-	}
-
-	return fmt.Errorf("failed to check if secret exists: %w", err)
+	r.logger.Info("secret does not exist as expected")
+	return nil
 }
