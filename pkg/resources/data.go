@@ -57,9 +57,9 @@ import (
 const (
 	CloudProviderExternalFlag = "external"
 
-	// AuditLoggingSidecarEnvClusterName is the name of the environment variable that contains the cluster name
+	// AuditLoggingSidecarEnvClusterID is the name of the environment variable that contains the cluster ID
 	// that is used to identify the cluster for the audit logging sidecar.
-	AuditLoggingSidecarEnvClusterName = "CLUSTER_NAME"
+	AuditLoggingSidecarEnvClusterID = "CLUSTER_ID"
 )
 
 var auditLoggingConfigParserRegex = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
@@ -977,8 +977,8 @@ func (d *TemplateData) GetAuditLoggingSidecarEnvs() []corev1.EnvVar {
 		}
 	}
 
-	envMap[AuditLoggingSidecarEnvClusterName] = corev1.EnvVar{
-		Name:  AuditLoggingSidecarEnvClusterName,
+	envMap[AuditLoggingSidecarEnvClusterID] = corev1.EnvVar{
+		Name:  AuditLoggingSidecarEnvClusterID,
 		Value: c.Name,
 	}
 
