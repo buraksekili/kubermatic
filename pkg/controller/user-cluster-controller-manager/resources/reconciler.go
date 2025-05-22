@@ -300,6 +300,12 @@ func (r *reconciler) reconcile(ctx context.Context) error {
 		}
 	}
 
+	if !r.userSSHKeyAgent {
+		if err := r.ensureUserSSHKeyAgentIsRemoved(ctx); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -950,6 +956,18 @@ func (r *reconciler) reconcileSecrets(ctx context.Context, data reconcileData) e
 
 	if err := reconciling.ReconcileSecrets(ctx, creators, resources.CloudInitSettingsNamespace, r); err != nil {
 		return fmt.Errorf("failed to reconcile Secrets in namespace %s: %w", resources.CloudInitSettingsNamespace, err)
+	}
+
+	return nil
+}
+
+func (r *reconciler) ensureUserSSHKeyAgentIsRemoved(ctx context.Context) error {
+	resourcesToBeDeleted := usersshkeys.ResourcesForDeletion()
+	for i := range resourcesToBeDeleted {
+		err := r.Delete(ctx, resourcesToBeDeleted[i])
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to ensure user SSH key agent resources are removed/not present: %w", err)
+		}
 	}
 
 	return nil

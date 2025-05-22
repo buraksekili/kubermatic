@@ -23,10 +23,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+const secretName = resources.UserSSHKeys
+
 // SecretReconciler returns a function to create a secret in the usercluster containing the user ssh keys.
 func SecretReconciler(userSSHKeys map[string][]byte) reconciling.NamedSecretReconcilerFactory {
 	return func() (string, reconciling.SecretReconciler) {
-		return resources.UserSSHKeys, func(sec *corev1.Secret) (*corev1.Secret, error) {
+		return secretName, func(sec *corev1.Secret) (*corev1.Secret, error) {
 			sec.Data = userSSHKeys
 			return sec, nil
 		}
