@@ -286,7 +286,7 @@ func prepareHelmValues(dir, kkpEndpoint string) (string, error) {
 
 	return prepareYAMLFile(dir, "values", func(doc *yamled.Document) error {
 		doc.Set(yamled.Path{"dex", "config", "enablePasswordDB"}, true)
-		doc.Set(yamled.Path{"dex", "config", "issuer"}, fmt.Sprintf("%s/dex", kkpEndpoint))
+		doc.Set(yamled.Path{"dex", "config", "issuer"}, fmt.Sprintf("http://%s/dex", kkpEndpoint))
 		doc.Set(yamled.Path{"telemetry", "uuid"}, uuid.NewString())
 		doc.Set(yamled.Path{"nginx", "controller", "extraArgs", "update-status"}, "true")
 		doc.Remove(yamled.Path{"minio"})
