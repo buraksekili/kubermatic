@@ -291,7 +291,7 @@ func prepareHelmValues(dir, kkpEndpoint string) (string, error) {
 		doc.Set(yamled.Path{"nginx", "controller", "extraArgs", "update-status"}, "true")
 		doc.Remove(yamled.Path{"minio"})
 
-		doc.Fill(yamled.Path{"dex", "ingress"}, map[string]interface{}{
+		doc.Set(yamled.Path{"dex", "ingress"}, map[string]interface{}{
 			"className": "nginx",
 			"enabled":   true,
 			"annotations": map[string]interface{}{
