@@ -20,8 +20,11 @@ import (
 	"context"
 	"crypto/sha1"
 	"fmt"
+	kubernetes2 "k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/kubernetes"
 	"net"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strings"
+	"time"
 
 	appskubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/apps.kubermatic/v1"
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
@@ -73,39 +76,26 @@ import (
 )
 
 // Reconcile creates, updates, or deletes Kubernetes resources to match the desired state.
-func (r *reconciler) reconcile(ctx context.Context) error {
-	caCert, err := r.caCert(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get caCert: %w", err)
-	}
-
-	userSSHKeys, err := r.userSSHKeys(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get userSSHKeys: %w", err)
-	}
-
-	cluster, err := r.getCluster(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve cluster: %w", err)
-	}
-
-	data := reconcileData{
-		caCert:       caCert,
-		userSSHKeys:  userSSHKeys,
-		ccmMigration: r.ccmMigration || r.ccmMigrationCompleted,
-		cluster:      cluster,
+func (r *reconciler) reconcile(ctx context.Context, data reconcileData) error {
+	cluster := data.cluster
+	if cluster == nil {
+		return fmt.Errorf("cluster is nil")
 	}
 
 	if !cluster.Spec.DisableCSIDriver {
 		if r.cloudProvider == kubermaticv1.VSphereCloudProvider ||
 			r.cloudProvider == kubermaticv1.VMwareCloudDirectorCloudProvider ||
 			(r.cloudProvider == kubermaticv1.NutanixCloudProvider && r.nutanixCSIEnabled) {
+			var err error
+
 			data.csiCloudConfig, err = r.cloudConfig(ctx, resources.CSICloudConfigSecretName)
 			if err != nil {
 				return fmt.Errorf("failed to get csi config: %w", err)
 			}
 		} else if r.cloudProvider == kubermaticv1.AzureCloudProvider ||
 			r.cloudProvider == kubermaticv1.OpenstackCloudProvider {
+			var err error
+
 			// Azure and Openstack CSI drivers don't have dedicated CSI cloud config.
 			data.csiCloudConfig, err = r.cloudConfig(ctx, resources.CloudConfigSecretName)
 			if err != nil {
@@ -114,7 +104,7 @@ func (r *reconciler) reconcile(ctx context.Context) error {
 		}
 	}
 
-	err = r.setupNetworkingData(cluster, &data)
+	err := r.setupNetworkingData(cluster, &data)
 	if err != nil {
 		return fmt.Errorf("failed to setup cluster networking data: %w", err)
 	}
@@ -1068,20 +1058,114 @@ func (r *reconciler) reconcileDeployments(ctx context.Context, data reconcileDat
 		}
 	}
 
-	if r.isKonnectivityEnabled {
-		konnectivityResources := resources.GetOverrides(data.cluster.Spec.ComponentsOverride)
+	if err := r.reconcileKonnectivityDeployment(ctx, data); err != nil {
+		return err
+	}
 
-		creators := []reconciling.NamedDeploymentReconcilerFactory{
-			konnectivity.DeploymentReconciler(
-				data.clusterVersion, data.cluster,
-				r.konnectivityServerHost, r.konnectivityServerPort, r.konnectivityKeepaliveTime,
-				r.imageRewriter, konnectivityResources,
-			),
-			metricsserver.DeploymentReconciler(r.imageRewriter), // deploy metrics-server in user cluster
+	return nil
+}
+
+func (r *reconciler) reconcileKonnectivityRollout(ctx context.Context, data reconcileData) (reconcile.Result, error) {
+	cluster := data.cluster
+	if cluster == nil {
+		return reconcile.Result{}, fmt.Errorf("cluster is nil")
+	}
+
+	// If the trigger label is gone, our work here is done, though this should not happen
+	// at this stage.
+	if cluster.GetLabels()[kubernetes2.RolloutKonnectivityDeploymentsLabel] != "true" {
+		return reconcile.Result{}, nil
+	}
+
+	// check the precondition: the seed controller must be finished.
+	knpServerCond, exists := cluster.Status.Conditions[kubermaticv1.ClusterConditionKonnectivityServerRollout]
+	if !exists {
+		// If the condition is not set yet, the seed controller hasn't even started.
+		// so, let's requeue and wait for seed-controller to finish.
+		return reconcile.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
+	switch knpServerCond.Status {
+	case corev1.ConditionTrue:
+		// The server is ready. Proceed with the agent rollout.
+		r.log.Info("Server rollout completed, starting agent rollout...")
+	case corev1.ConditionFalse:
+		// We must clean up the label to finalize the process.
+		return r.cleanupRollout(ctx, cluster)
+	case corev1.ConditionUnknown:
+		// If the condition is unknown, the seed-controller is still working. Wait.
+		return reconcile.Result{RequeueAfter: 15 * time.Second}, nil
+	default:
+		// This should not happen.
+		// to prevent system to be locked, remove the label.
+		return r.cleanupRollout(ctx, cluster)
+	}
+
+	if err := r.reconcileKonnectivityDeployment(ctx, data); err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to reconcile konnectivity agent deployment: %w", err)
+	}
+
+	if err := util.UpdateClusterStatus(ctx, r.seedClient, cluster, func(c *kubermaticv1.Cluster) {
+		util.SetClusterCondition(c, r.versions,
+			kubermaticv1.ClusterConditionKonnectivityAgentRollout,
+			corev1.ConditionTrue,
+			kubermaticv1.ClusterReasonKonnectivityAgentRolloutCompleted,
+			"Konnectivity Agent rollout completed successfully.")
+	}); err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to update agent rollout status: %w", err)
+	}
+
+	return r.cleanupRollout(ctx, cluster)
+}
+
+func (r *reconciler) cleanupRollout(ctx context.Context, cluster *kubermaticv1.Cluster) (reconcile.Result, error) {
+	labelPatch := ctrlruntimeclient.MergeFrom(cluster.DeepCopy())
+
+	labels := cluster.GetLabels()
+	if labels != nil && labels[kubernetes2.RolloutKonnectivityDeploymentsLabel] != "" {
+		delete(labels, kubernetes2.RolloutKonnectivityDeploymentsLabel)
+		cluster.SetLabels(labels)
+
+		if err := r.seedClient.Patch(ctx, cluster, labelPatch); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to remove rollout label via patch: %w", err)
 		}
-		if err := reconciling.ReconcileDeployments(ctx, creators, metav1.NamespaceSystem, r); err != nil {
-			return fmt.Errorf("failed to reconcile Deployments in namespace %s: %w", metav1.NamespaceSystem, err)
+	}
+
+	err := util.UpdateClusterStatus(ctx, r.seedClient, cluster, func(c *kubermaticv1.Cluster) {
+		if c.Status.Conditions != nil {
+			delete(c.Status.Conditions, kubermaticv1.ClusterConditionKonnectivityServerRollout)
+			delete(c.Status.Conditions, kubermaticv1.ClusterConditionKonnectivityAgentRollout)
 		}
+	})
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to update konnectivity server rollout status: %w", err)
+	}
+
+	return reconcile.Result{}, nil
+}
+
+func (r *reconciler) reconcileKonnectivityDeployment(ctx context.Context, data reconcileData) error {
+	if !r.isKonnectivityEnabled {
+		return nil
+	}
+
+	konnectivityResources := resources.GetOverrides(data.cluster.Spec.ComponentsOverride)
+
+	creators := []reconciling.NamedDeploymentReconcilerFactory{
+		konnectivity.DeploymentReconciler(
+			data.clusterVersion, data.cluster,
+			r.konnectivityServerHost, r.konnectivityServerPort, r.konnectivityKeepaliveTime,
+			r.imageRewriter, konnectivityResources,
+		),
+		metricsserver.DeploymentReconciler(r.imageRewriter), // deploy metrics-server in user cluster
+	}
+
+	err := reconciling.ReconcileDeployments(ctx, creators, metav1.NamespaceSystem, r)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to reconcile Konnectivity Deployments in namespace %s: %w",
+			metav1.NamespaceSystem, err,
+		)
 	}
 
 	return nil

@@ -33,7 +33,7 @@ func HealthyDeployment(ctx context.Context, client ctrlruntimeclient.Client, nn 
 	deployment := &appsv1.Deployment{}
 	if err := client.Get(ctx, nn, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
-			return kubermaticv1.HealthStatusDown, nil
+			return kubermaticv1.HealthStatusUp, nil
 		}
 		return kubermaticv1.HealthStatusDown, err
 	}

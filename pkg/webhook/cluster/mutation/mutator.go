@@ -43,8 +43,13 @@ type Mutator struct {
 	disableProviderMutation bool
 }
 
-// NewAdmissionHandler returns a new cluster AdmissionHandler.
-func NewMutator(client ctrlruntimeclient.Client, configGetter provider.KubermaticConfigurationGetter, seedGetter provider.SeedGetter, caBundle *x509.CertPool) *Mutator {
+// NewMutator returns a new cluster AdmissionHandler.
+func NewMutator(
+	client ctrlruntimeclient.Client,
+	configGetter provider.KubermaticConfigurationGetter,
+	seedGetter provider.SeedGetter,
+	caBundle *x509.CertPool,
+) *Mutator {
 	return &Mutator{
 		client:       client,
 		configGetter: configGetter,

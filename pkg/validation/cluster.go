@@ -177,7 +177,7 @@ func ValidateClusterSpec(spec *kubermaticv1.ClusterSpec, dc *kubermaticv1.Datace
 	}
 
 	if errs := ValidateKonnectivityConfig(
-		spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations,
+		&spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations,
 		field.NewPath("componentsOverride", "konnectivityProxy", "configurations"),
 		&spec.Version,
 	); len(errs) > 0 {
@@ -198,7 +198,9 @@ func ValidateKonnectivityConfig(
 
 	allErrs := field.ErrorList{}
 
+	fmt.Println("new one, let's see if it's valid")
 	if conf.Server.XfrChannelSize != nil {
+		fmt.Println("conf.server is found, checking it, its value is => ", *conf.Server.XfrChannelSize)
 		if clusterVersion.Semver().Compare(semverlib.MustParse(leastK8sVersionForKonnectivityXfr)) < 0 {
 			allErrs = append(allErrs, field.Invalid(
 				fldPath.Child("konnectivityServerConfig", "xfrChannelSize"),
@@ -212,6 +214,7 @@ func ValidateKonnectivityConfig(
 	}
 
 	if conf.Agent.XfrChannelSize != nil {
+		fmt.Println("conf.agent is found, checking it, its value is => ", *conf.Agent.XfrChannelSize)
 		if clusterVersion.Semver().Compare(semverlib.MustParse(leastK8sVersionForKonnectivityXfr)) < 0 {
 			allErrs = append(allErrs, field.Invalid(
 				fldPath.Child("konnectivityAgentConfig", "xfrChannelSize"),
@@ -222,6 +225,11 @@ func ValidateKonnectivityConfig(
 				),
 			))
 		}
+	}
+
+	fmt.Println("done validation")
+	if len(allErrs) > 0 {
+		fmt.Printf("FOUND ERRORS while validating konnectivity config %+v\n", allErrs)
 	}
 
 	return allErrs
@@ -384,6 +392,8 @@ func ValidateClusterUpdate(ctx context.Context, newCluster, oldCluster *kubermat
 	if !equality.Semantic.DeepEqual(newCluster.TypeMeta, oldCluster.TypeMeta) {
 		allErrs = append(allErrs, field.Forbidden(field.NewPath("typeMeta"), "type meta cannot be changed"))
 	}
+
+	fmt.Printf("allErrs of validate cluster update => %+v\n", allErrs)
 
 	return allErrs
 }

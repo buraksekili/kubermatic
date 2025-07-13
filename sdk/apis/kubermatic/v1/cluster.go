@@ -385,7 +385,6 @@ type ClusterConditionType string
 // The reference time for this is the node system time and might differ from
 // the user's timezone, which needs to be considered when configuring a window.
 type UpdateWindow struct {
-
 	// Sets the start time of the update window. This can be a time of day in 24h format, e.g. `22:30`,
 	// or a day of week plus a time of day, for example `Mon 21:00`. Only short names for week days are supported,
 	// i.e. `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat` and `Sun`.
@@ -552,13 +551,21 @@ const (
 
 	// ClusterConditionNone is a special value indicating that no cluster condition should be set.
 	ClusterConditionNone ClusterConditionType = ""
-	// This condition is met when a CSI migration is ongoing and the CSI
+	// ClusterConditionCSIKubeletMigrationCompleted is met when a CSI migration is ongoing and the CSI
 	// migration feature gates are activated on the Kubelets of all the nodes.
 	// When this condition is `true` CSIMigration{provider}Complete can be
 	// enabled.
 	ClusterConditionCSIKubeletMigrationCompleted ClusterConditionType = "CSIKubeletMigrationCompleted"
 
-	// This condition is used to determine if the CSI addon created by KKP is in use or not.
+	ClusterConditionKonnectivityServerRollout ClusterConditionType = "KonnectivityServerRollout"
+	ClusterConditionKonnectivityAgentRollout  ClusterConditionType = "KonnectivityAgentRollout"
+
+	ClusterReasonKonnectivityServerRolloutProgressing = "Progressing"
+	ClusterReasonKonnectivityServerRolloutCompleted   = "Completed"
+	ClusterReasonKonnectivityServerRolloutFailed      = "Failed"
+	ClusterReasonKonnectivityAgentRolloutCompleted    = "Completed"
+
+	// ClusterConditionCSIAddonInUse is used to determine if the CSI addon created by KKP is in use or not.
 	// This helps in ascertaining if the CSI addon can be removed from the cluster or not.
 	ClusterConditionCSIAddonInUse ClusterConditionType = "CSIAddonInUse"
 
@@ -871,14 +878,14 @@ type KonnectivityProxySettings struct {
 	// Args configures arguments (flags) for the Konnectivity deployments.
 	Args []string `json:"args,omitempty"`
 
-	KonnectivityConfigurations *KonnectivityConfigurations `json:"configurations,omitempty"`
+	KonnectivityConfigurations KonnectivityConfigurations `json:"configurations,omitempty"`
 }
 
 type KonnectivityConfigurations struct {
 	// Server is the configuration for the Konnectivity server.
-	Server *KonnectivityServerConfig `json:"server,omitempty"`
+	Server KonnectivityServerConfig `json:"server,omitempty"`
 	// Agent is the configuration for the Konnectivity agent.
-	Agent *KonnectivityAgentConfig `json:"agent,omitempty"`
+	Agent KonnectivityAgentConfig `json:"agent,omitempty"`
 }
 
 type KonnectivityServerConfig struct {

@@ -20,15 +20,22 @@ cd $(dirname $0)/..
 source hack/lib.sh
 
 KUBERMATIC_DEBUG=${KUBERMATIC_DEBUG:-true}
-PPROF_PORT=${PPROF_PORT:-6601}
+PPROF_PORT=${PPROF_PORT:-6621}
 TMPDIR="${TMPDIR:-$(mktemp -d)}"
 
 echodate "Compiling user-cluster-controller-manager..."
+export KUBERMATICCOMMIT="${KUBERMATICCOMMIT:-$(git rev-parse origin/main)}"
 make user-cluster-controller-manager
 
 # Getting everything we need from the api
 # This script assumes you are in your cluster namespace, which you can configure via `kubectl config set-context --current --namespace=<<cluster-namespace>>`
 NAMESPACE="${NAMESPACE:-$(kubectl config view --minify | grep namespace | awk '{ print $2 }')}"
+if [ -z "${NAMESPACE:-}" ]; then
+  echo "You must set the context to the namespace of the cluster, otherwise the controller will fail to start"
+  echo "Run: kubectl config set-context --current --namespace=<<cluster-namespace>>"
+  exit 1
+fi
+
 CLUSTER_NAME="$(echo $NAMESPACE | sed 's/cluster-//')"
 CLUSTER_RAW="$(kubectl get cluster $CLUSTER_NAME -o json)"
 CLUSTER_URL="$(echo $CLUSTER_RAW | jq -r .status.address.url)"
@@ -45,13 +52,13 @@ KUBECONFIG_USERCLUSTER_CONTROLLER_FILE=$(mktemp)
 kubectl --namespace "$NAMESPACE" get secret admin-kubeconfig --output json |
   jq '.data.kubeconfig' -r |
   base64 -d \
-    > $KUBECONFIG_USERCLUSTER_CONTROLLER_FILE
+    >$KUBECONFIG_USERCLUSTER_CONTROLLER_FILE
 echo "Using kubeconfig $KUBECONFIG_USERCLUSTER_CONTROLLER_FILE"
 
 SEED_KUBECONFIG=$(mktemp)
 SEED_SERVICEACCOUNT_TOKEN="$(kubectl --namespace "$NAMESPACE" create token kubermatic-usercluster-controller-manager --duration=8h)"
 kubectl config view --flatten --minify -ojson |
-  jq --arg token "$SEED_SERVICEACCOUNT_TOKEN" 'del(.users[0].user)|.users[0].user.token = $token' > $SEED_KUBECONFIG
+  jq --arg token "$SEED_SERVICEACCOUNT_TOKEN" 'del(.users[0].user)|.users[0].user.token = $token' >$SEED_KUBECONFIG
 
 CLUSTER_VERSION="$(echo $CLUSTER_RAW | jq -r '.spec.version')"
 
@@ -67,7 +74,7 @@ if echo $CLUSTER_RAW | grep -i kubevirt -q; then
   kubectl --namespace "$NAMESPACE" get secret kubevirt-infra-kubeconfig --output json |
     jq '.data."infra-kubeconfig"' -r |
     base64 -d \
-      > $KUBEVIRT_INFRA_KUBECONFIG
+      >$KUBEVIRT_INFRA_KUBECONFIG
   echo "Using kubevirt infra kubeconfig $KUBEVIRT_INFRA_KUBECONFIG"
   ARGS="$ARGS -kv-vmi-eviction-controller"
   ARGS="$ARGS -kv-infra-kubeconfig=${KUBEVIRT_INFRA_KUBECONFIG}"
@@ -75,7 +82,7 @@ fi
 
 if $(echo ${CLUSTER_RAW} | jq -r '.spec.clusterNetwork.konnectivityEnabled'); then
   KONNECTIVITY_SERVER_SERVICE_RAW="$(kubectl --namespace "$NAMESPACE" get service konnectivity-server -o json)"
-  if $(echo ${KONNECTIVITY_SERVER_SERVICE_RAW} | jq --exit-status '.spec.ports[0].nodePort' > /dev/null); then
+  if $(echo ${KONNECTIVITY_SERVER_SERVICE_RAW} | jq --exit-status '.spec.ports[0].nodePort' >/dev/null); then
     KONNECTIVITY_SERVER_PORT="$(echo ${KONNECTIVITY_SERVER_SERVICE_RAW} | jq -r '.spec.ports[0].nodePort')"
     KONNECTIVITY_SERVER_HOST="$(echo ${CLUSTER_RAW} | jq -r '.status.address.externalName')"
   else
@@ -88,7 +95,7 @@ if $(echo ${CLUSTER_RAW} | jq -r '.spec.clusterNetwork.konnectivityEnabled'); th
   ARGS="$ARGS -konnectivity-server-port=${KONNECTIVITY_SERVER_PORT}"
 else
   OPENVPN_SERVER_SERVICE_RAW="$(kubectl --namespace "$NAMESPACE" get service openvpn-server -o json)"
-  if $(echo ${OPENVPN_SERVER_SERVICE_RAW} | jq --exit-status '.spec.ports[0].nodePort' > /dev/null); then
+  if $(echo ${OPENVPN_SERVER_SERVICE_RAW} | jq --exit-status '.spec.ports[0].nodePort' >/dev/null); then
     OPENVPN_SERVER_PORT="$(echo ${OPENVPN_SERVER_SERVICE_RAW} | jq -r '.spec.ports[0].nodePort')"
   else
     OPENVPN_SERVER_PORT="$(echo ${OPENVPN_SERVER_SERVICE_RAW} | jq -r '.spec.ports[0].port')"

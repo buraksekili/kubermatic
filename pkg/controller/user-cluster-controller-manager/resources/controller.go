@@ -20,13 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	semverlib "github.com/Masterminds/semver/v3"
+	"go.uber.org/zap"
+	"k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/kubernetes"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
-
-	semverlib "github.com/Masterminds/semver/v3"
-	"go.uber.org/zap"
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	userclustercontrollermanager "k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager"
@@ -277,7 +277,7 @@ type reconciler struct {
 }
 
 // Reconcile makes changes in response to objects in the user cluster.
-func (r *reconciler) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+func (r *reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
 	paused, err := r.clusterIsPaused(ctx)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to check cluster pause status: %w", err)
@@ -287,7 +287,33 @@ func (r *reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, nil
 	}
 
-	if err := r.reconcile(ctx); err != nil {
+	caCert, err := r.caCert(ctx)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to get caCert: %w", err)
+	}
+
+	userSSHKeys, err := r.userSSHKeys(ctx)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to get userSSHKeys: %w", err)
+	}
+
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to retrieve cluster: %w", err)
+	}
+
+	data := reconcileData{
+		caCert:       caCert,
+		userSSHKeys:  userSSHKeys,
+		ccmMigration: r.ccmMigration || r.ccmMigrationCompleted,
+		cluster:      cluster,
+	}
+
+	if cluster.GetLabels()[kubernetes.RolloutKonnectivityDeploymentsLabel] == "true" {
+		return r.reconcileKonnectivityRollout(ctx, data)
+	}
+
+	if err := r.reconcile(ctx, data); err != nil {
 		return reconcile.Result{}, err
 	}
 

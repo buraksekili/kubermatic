@@ -45,7 +45,14 @@ import (
 // This function assumes that the KubermaticConfiguration has already been defaulted
 // (as the KubermaticConfigurationGetter does that automatically), but the Seed
 // does not yet need to be defaulted (to the values of the KubermaticConfiguration).
-func DefaultClusterSpec(ctx context.Context, spec *kubermaticv1.ClusterSpec, template *kubermaticv1.ClusterTemplate, seed *kubermaticv1.Seed, config *kubermaticv1.KubermaticConfiguration, cloudProvider provider.CloudProvider) error {
+func DefaultClusterSpec(
+	ctx context.Context,
+	spec *kubermaticv1.ClusterSpec,
+	template *kubermaticv1.ClusterTemplate,
+	seed *kubermaticv1.Seed,
+	config *kubermaticv1.KubermaticConfiguration,
+	cloudProvider provider.CloudProvider,
+) error {
 	var err error
 
 	// Apply default values to the Seed, just in case.
@@ -166,7 +173,23 @@ func DefaultClusterSpec(ctx context.Context, spec *kubermaticv1.ClusterSpec, tem
 
 	// default cluster networking parameters
 	spec.ClusterNetwork = DefaultClusterNetwork(spec.ClusterNetwork, kubermaticv1.ProviderType(spec.Cloud.ProviderName), spec.ExposeStrategy)
+
+	// Apply KonnectivityProxy agent defaults if not already set
+	fmt.Printf("before defaulting knp proxy agent, spec: %+v\n", getVal(spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations))
+	DefaultKonnectivityProxyAgentConfig(spec, template, datacenter, seed)
+	fmt.Println("--------------------------------")
+	fmt.Printf("after defaulting knp proxy agent, spec: %+v\n", getVal(spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations))
+
+	fmt.Printf("before defaulting knp proxy server, spec: %+v\n", getVal(spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations))
+	DefaultKonnectivityProxyServerConfig(spec, template, datacenter, seed)
+	fmt.Println("--------------------------------")
+	fmt.Printf("after defaulting knp proxy server, spec: %+v\n", getVal(spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations))
+
 	return nil
+}
+
+func getVal(v kubermaticv1.KonnectivityConfigurations) kubermaticv1.KonnectivityAgentConfig {
+	return v.Agent
 }
 
 // GetDefaultingClusterTemplate returns the ClusterTemplate that is referenced by the Seed.
@@ -266,4 +289,120 @@ func DefaultClusterNetwork(specClusterNetwork kubermaticv1.ClusterNetworkingConf
 	}
 
 	return specClusterNetwork
+}
+
+// DefaultKonnectivityProxyAgentConfig looks for KonnectivityProxy agent configuration default values
+// following the precedence order: Cluster -> ClusterTemplate -> Datacenter -> Seed (as Seed DefaultComponentSettings is deprecated).
+// If the agent configuration needs to be defaulted via Cluster, ClusterTemplate or Datacenter,
+// the defaults are applied to the cluster spec; and then, user-cluster-controller will deploy Konnectivity agent accordingly.
+func DefaultKonnectivityProxyAgentConfig(spec *kubermaticv1.ClusterSpec, template *kubermaticv1.ClusterTemplate, datacenter *kubermaticv1.Datacenter, seed *kubermaticv1.Seed) {
+	fmt.Println("defaulting knp proxy agent")
+	knpConf := spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations
+	agentConf := knpConf.Agent
+	if agentConf.XfrChannelSize != nil {
+		fmt.Println("found xfr channel size in cluster spec, using it", *agentConf.XfrChannelSize)
+		return
+	}
+
+	if template != nil {
+		agentConf = template.Spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations.Agent
+		if agentConf.XfrChannelSize != nil {
+			fmt.Println("found xfr channel size in cluster template, using it", *agentConf.XfrChannelSize)
+			setKonnectivityProxyAgentConf(spec, &agentConf)
+			return
+		}
+	}
+
+	fmt.Printf("DEBUG: datacenter is nil: %t\n", datacenter == nil)
+	if datacenter != nil {
+		fmt.Printf("DEBUG: datacenter.Spec.KonnectivityConfigurations is nil: %t\n", datacenter.Spec.KonnectivityConfigurations == nil)
+		if datacenter.Spec.KonnectivityConfigurations != nil {
+			fmt.Printf("DEBUG: datacenter.Spec.KonnectivityConfigurations: %+v\n", datacenter.Spec.KonnectivityConfigurations)
+			agentConf := datacenter.Spec.KonnectivityConfigurations.Agent
+			if agentConf.XfrChannelSize != nil {
+				fmt.Println("found xfr channel size in datacenter, using it", *agentConf.XfrChannelSize)
+				setKonnectivityProxyAgentConf(spec, &agentConf)
+				return
+			}
+		}
+	}
+
+	if seed != nil {
+		agentConf = seed.Spec.DefaultComponentSettings.KonnectivityProxy.KonnectivityConfigurations.Agent
+		if agentConf.XfrChannelSize != nil {
+			fmt.Println("found xfr channel size in seed, using it", *agentConf.XfrChannelSize)
+			setKonnectivityProxyAgentConf(spec, &agentConf)
+			return
+		}
+	}
+
+	fmt.Println("no xfr channel size found, using default")
+
+	return
+}
+
+func DefaultKonnectivityProxyServerConfig(
+	spec *kubermaticv1.ClusterSpec,
+	tpl *kubermaticv1.ClusterTemplate,
+	dc *kubermaticv1.Datacenter,
+	seed *kubermaticv1.Seed,
+) {
+	fmt.Println("defaulting konnectivity proxy server")
+	knpConf := spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations
+
+	serverConf := knpConf.Server
+	if serverConf.XfrChannelSize != nil {
+		fmt.Println("found server xfr channel size in cluster spec, using it", *serverConf.XfrChannelSize)
+		return
+	}
+
+	if tpl != nil {
+		knpConf = tpl.Spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations
+		serverConf = knpConf.Server
+		if serverConf.XfrChannelSize != nil {
+			fmt.Println("found xfr channel size in cluster template, using it", *serverConf.XfrChannelSize)
+			setKonnectivityProxyServerConf(spec, &serverConf)
+			return
+		}
+	}
+
+	fmt.Printf("DEBUG: datacenter is nil: %t\n", dc == nil)
+	if dc != nil {
+		fmt.Printf("DEBUG: datacenter.Spec.KonnectivityConfigurations is nil: %t\n", dc.Spec.KonnectivityConfigurations == nil)
+		if dc.Spec.KonnectivityConfigurations != nil {
+			fmt.Printf("DEBUG: datacenter.Spec.KonnectivityConfigurations: %+v\n", dc.Spec.KonnectivityConfigurations)
+			serverConf = dc.Spec.KonnectivityConfigurations.Server
+			if serverConf.XfrChannelSize != nil {
+				fmt.Println("found xfr channel size in datacenter, using it", *serverConf.XfrChannelSize)
+				setKonnectivityProxyServerConf(spec, &serverConf)
+				return
+			}
+		}
+	}
+
+	if seed != nil {
+		knpConf = seed.Spec.DefaultComponentSettings.KonnectivityProxy.KonnectivityConfigurations
+		serverConf = knpConf.Server
+		if serverConf.XfrChannelSize != nil {
+			fmt.Println("found xfr channel size in seed, using it", *serverConf.XfrChannelSize)
+			setKonnectivityProxyServerConf(spec, &serverConf)
+			return
+		}
+	}
+
+	fmt.Println("no xfr channel size found, using default (server)")
+
+	return
+}
+
+func setKonnectivityProxyServerConf(spec *kubermaticv1.ClusterSpec, serverConf *kubermaticv1.KonnectivityServerConfig) {
+	if spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations.Server.XfrChannelSize == nil {
+		spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations.Server.XfrChannelSize = serverConf.XfrChannelSize
+	}
+}
+
+func setKonnectivityProxyAgentConf(spec *kubermaticv1.ClusterSpec, agentConf *kubermaticv1.KonnectivityAgentConfig) {
+	if spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations.Agent.XfrChannelSize == nil {
+		spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations.Agent.XfrChannelSize = agentConf.XfrChannelSize
+	}
 }

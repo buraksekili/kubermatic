@@ -951,8 +951,8 @@ func (d *TemplateData) GetEnvVars() ([]corev1.EnvVar, error) {
 //     though the last one is deprecated and will be removed in the future.
 func (d *TemplateData) getKonnectivityServerConfigurations() ([]string, error) {
 	if cluster := d.Cluster(); cluster != nil {
-		if knpConfigs := cluster.Spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations; knpConfigs != nil {
-			if server := knpConfigs.Server; server != nil && server.XfrChannelSize != nil {
+		if knpConfigs := cluster.Spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations; (knpConfigs != kubermaticv1.KonnectivityConfigurations{}) {
+			if server := knpConfigs.Server; (server != kubermaticv1.KonnectivityServerConfig{}) && server.XfrChannelSize != nil {
 				return []string{fmt.Sprintf("--xfr-channel-size=%d", *server.XfrChannelSize)}, nil
 			}
 		}
@@ -969,15 +969,15 @@ func (d *TemplateData) getKonnectivityServerConfigurations() ([]string, error) {
 			return nil, fmt.Errorf("invalid scope of default cluster template, is %q but must be %q", scope, kubermaticv1.SeedTemplateScope)
 		}
 
-		if knpConfigs := tpl.Spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations; knpConfigs != nil {
-			if server := knpConfigs.Server; server != nil && server.XfrChannelSize != nil {
+		if knpConfigs := tpl.Spec.ComponentsOverride.KonnectivityProxy.KonnectivityConfigurations; (knpConfigs != kubermaticv1.KonnectivityConfigurations{}) {
+			if server := knpConfigs.Server; (server != kubermaticv1.KonnectivityServerConfig{}) && server.XfrChannelSize != nil {
 				return []string{fmt.Sprintf("--xfr-channel-size=%d", *server.XfrChannelSize)}, nil
 			}
 		}
 	}
 
 	if dc := d.DC(); dc != nil && dc.Spec.KonnectivityConfigurations != nil {
-		if server := dc.Spec.KonnectivityConfigurations.Server; server != nil {
+		if server := dc.Spec.KonnectivityConfigurations.Server; (server != kubermaticv1.KonnectivityServerConfig{}) {
 			if server.XfrChannelSize != nil {
 				return []string{fmt.Sprintf("--xfr-channel-size=%d", *server.XfrChannelSize)}, nil
 			}
@@ -985,8 +985,8 @@ func (d *TemplateData) getKonnectivityServerConfigurations() ([]string, error) {
 	}
 
 	if seed := d.Seed(); seed != nil {
-		if knpConfigs := seed.Spec.DefaultComponentSettings.KonnectivityProxy.KonnectivityConfigurations; knpConfigs != nil {
-			if server := knpConfigs.Server; server != nil && server.XfrChannelSize != nil {
+		if knpConfigs := seed.Spec.DefaultComponentSettings.KonnectivityProxy.KonnectivityConfigurations; (knpConfigs != kubermaticv1.KonnectivityConfigurations{}) {
+			if server := knpConfigs.Server; (server != kubermaticv1.KonnectivityServerConfig{}) && server.XfrChannelSize != nil {
 				return []string{fmt.Sprintf("--xfr-channel-size=%d", *server.XfrChannelSize)}, nil
 			}
 		}

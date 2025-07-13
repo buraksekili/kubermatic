@@ -75,7 +75,7 @@ func MutateCreate(newCluster *kubermaticv1.Cluster, config *kubermaticv1.Kuberma
 	return nil
 }
 
-func MutateUpdate(oldCluster, newCluster *kubermaticv1.Cluster, config *kubermaticv1.KubermaticConfiguration, seed *kubermaticv1.Seed, cloudProvider provider.CloudProvider) *field.Error {
+func MutateUpdate(oldCluster, newCluster *kubermaticv1.Cluster, _ *kubermaticv1.KubermaticConfiguration, _ *kubermaticv1.Seed, _ provider.CloudProvider) *field.Error {
 	// If the ExternalCloudProvider feature is enabled for the first time, mark the occasion
 	// by adding annotations to keep track of the required migration. This is only required for
 	// some providers that have more complex migration procedures; providers like Hetzner for

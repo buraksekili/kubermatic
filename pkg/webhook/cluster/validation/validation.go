@@ -131,6 +131,8 @@ func (v *validator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.O
 		errs = append(errs, err)
 	}
 
+	fmt.Printf("errors of update are: %+v\n", errs)
+
 	return nil, errs.ToAggregate()
 }
 

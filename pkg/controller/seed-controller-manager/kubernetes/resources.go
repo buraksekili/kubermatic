@@ -72,7 +72,91 @@ import (
 
 const (
 	clusterIPUnknownRetryTimeout = 5 * time.Second
+
+	RolloutKonnectivityDeploymentsLabel = "rollout-konnectivity-deployments"
 )
+
+func (r *Reconciler) reconcileApiServer(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	modifiers := r.deploymentModifiers(ctx, cluster)
+
+	factories := []reconciling.NamedDeploymentReconcilerFactory{
+		apiserver.DeploymentReconciler(data, r.features.KubernetesOIDCAuthentication),
+	}
+	return reconciling.ReconcileDeployments(ctx, factories, cluster.Status.NamespaceName, r, modifiers...)
+}
+
+func (r *Reconciler) rolloutKonnectivityOnDemand(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) (*reconcile.Result, error) {
+	if cluster == nil {
+		return nil, fmt.Errorf("cluster is nil")
+	}
+
+	if cluster.GetLabels()[RolloutKonnectivityDeploymentsLabel] != "true" {
+		// if no label exists in this function, just requeue the cluster again
+		// to let main reconcile logic to decide about what to do with this cluster.
+		return nil, nil
+	}
+
+	cond, exists := cluster.Status.Conditions[kubermaticv1.ClusterConditionKonnectivityServerRollout]
+	if exists && cond.Status == corev1.ConditionTrue {
+		// The work is done on seed-controller's point of view. it either successful had rollout Konnectivity or failed.
+		// Now, we'll let user-controller-manager to handle Konnectivity deployment in user cluster.
+		// todo: log
+		return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	err := util.UpdateClusterStatus(ctx, r.Client, cluster, func(c *kubermaticv1.Cluster) {
+		util.SetClusterCondition(c, r.versions,
+			kubermaticv1.ClusterConditionKonnectivityServerRollout,
+			corev1.ConditionUnknown,
+			kubermaticv1.ClusterReasonKonnectivityServerRolloutProgressing,
+			"Konnectivity server rollout is progressing...",
+		)
+	})
+	if err != nil {
+		return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	err = r.reconcileApiServer(ctx, cluster, data)
+	if err != nil {
+		updateErr := util.UpdateClusterStatus(ctx, r.Client, cluster, func(c *kubermaticv1.Cluster) {
+			util.SetClusterCondition(c, r.versions,
+				kubermaticv1.ClusterConditionKonnectivityServerRollout,
+				corev1.ConditionFalse,
+				kubermaticv1.ClusterReasonKonnectivityServerRolloutFailed,
+				fmt.Sprintf("Failed to reconcile API Server: %v", err),
+			)
+		})
+		if updateErr != nil {
+			// todo: log the error
+			return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
+		// Here, the error might be a transient one. So, reconciling again should try running `reconcileApiServer`
+		// logic again.
+		return &reconcile.Result{}, err
+	}
+
+	if cluster.Status.ExtendedHealth.Apiserver != kubermaticv1.HealthStatusUp {
+		// Apiserver deployment is updated but might not healthy yet, therefore
+		// we are still in Unknown progressing condition.
+		// todo: log here for debug purposes.
+		return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	err = util.UpdateClusterStatus(ctx, r.Client, cluster, func(c *kubermaticv1.Cluster) {
+		util.SetClusterCondition(c, r.versions,
+			kubermaticv1.ClusterConditionKonnectivityServerRollout,
+			corev1.ConditionTrue,
+			kubermaticv1.ClusterReasonKonnectivityServerRolloutCompleted,
+			"Konnectivity server rollout completed successfully.")
+	})
+	if err != nil {
+		// todo: log here, fmt.Errorf("operation succeeded, but failed to set final 'Completed' status: %w", err)
+		return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
+}
 
 func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *kubermaticv1.Cluster, namespace *corev1.Namespace) (*reconcile.Result, error) {
 	seed, err := r.seedGetter()
@@ -92,6 +176,12 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 	if err != nil {
 		return nil, err
 	}
+
+	if cluster.GetLabels()[RolloutKonnectivityDeploymentsLabel] == "true" {
+		fmt.Println("rollout konnectivity deployments enabled")
+		return r.rolloutKonnectivityOnDemand(ctx, cluster, data)
+	}
+
 	// check that all services are available
 	if err := r.ensureServices(ctx, cluster, data); err != nil {
 		return nil, err
@@ -464,6 +554,17 @@ func GetDeploymentReconcilers(data *resources.TemplateData, enableAPIserverOIDCA
 	return deployments
 }
 
+func (r *Reconciler) deploymentModifiers(
+	ctx context.Context,
+	cluster *kubermaticv1.Cluster,
+) []reconciling.ObjectModifier {
+	return []reconciling.ObjectModifier{
+		modifier.RelatedRevisionsLabels(ctx, r),
+		modifier.ControlplaneComponent(cluster),
+	}
+
+}
+
 func (r *Reconciler) ensureDeployments(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	if cluster.Spec.Cloud.ProviderName == string(kubermaticv1.AzureCloudProvider) {
 		if err := r.migrateAzureCCM(ctx, cluster); err != nil {
@@ -471,10 +572,7 @@ func (r *Reconciler) ensureDeployments(ctx context.Context, cluster *kubermaticv
 		}
 	}
 
-	modifiers := []reconciling.ObjectModifier{
-		modifier.RelatedRevisionsLabels(ctx, r),
-		modifier.ControlplaneComponent(cluster),
-	}
+	modifiers := r.deploymentModifiers(ctx, cluster)
 
 	factories := GetDeploymentReconcilers(data, r.features.KubernetesOIDCAuthentication, r.versions)
 	return reconciling.ReconcileDeployments(ctx, factories, cluster.Status.NamespaceName, r, modifiers...)

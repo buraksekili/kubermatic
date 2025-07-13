@@ -110,5 +110,30 @@ func (h *AdmissionHandler) Handle(ctx context.Context, req webhook.AdmissionRequ
 		return webhook.Errored(http.StatusInternalServerError, fmt.Errorf("marshaling cluster object failed: %w", err))
 	}
 
-	return admission.PatchResponseFromRaw(req.Object.Raw, mutatedCluster)
+	fmt.Printf("mutated cluster: %#v\n", getVal(mutated.Spec.ComponentsOverride.KonnectivityProxy))
+	fmt.Printf("DEBUG: Original object size: %d\n", len(req.Object.Raw))
+	fmt.Printf("DEBUG: Mutated object size: %d\n", len(mutatedCluster))
+
+	response := admission.PatchResponseFromRaw(req.Object.Raw, mutatedCluster)
+	fmt.Printf("DEBUG: Patch response allowed: %t\n", response.Allowed)
+	if response.Patch != nil {
+		fmt.Printf("DEBUG: Patch size: %d\n", len(response.Patch))
+		fmt.Printf("DEBUG: Patch content: %s\n", string(response.Patch))
+	} else {
+		fmt.Printf("DEBUG: No patch generated\n")
+	}
+	result := response.Result
+	if result != nil {
+		fmt.Printf("result: => ", *result)
+	} else {
+		fmt.Println("result is nil")
+	}
+
+	fmt.Println("warnings => %+v", response.Warnings)
+
+	return response
+}
+
+func getVal(v kubermaticv1.KonnectivityProxySettings) kubermaticv1.KonnectivityConfigurations {
+	return v.KonnectivityConfigurations
 }
