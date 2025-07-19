@@ -185,6 +185,25 @@ spec:
                           description: HelmRepository specifies OCI repository containing Helm charts of Applications from the default application catalog e.g. oci://localhost:5000/myrepo.
                           type: string
                       type: object
+                    manager:
+                      description: |-
+                        Manager contains configuration for the Application Definition Manager
+                        that is responsible for managing the Application Definitions in the cluster from specified OCI registries.
+                      properties:
+                        registrySettings:
+                          properties:
+                            registryURL:
+                              description: |-
+                                RegistryURL is the URL of the OCI registry where the Application Definitions are stored.
+                                e.g. oci://localhost:5000/myrepo.
+                              type: string
+                            tag:
+                              description: |-
+                                Tag is the tag of the OCI registry where the Application Definitions are stored.
+                                e.g. v1.0.0.
+                              type: string
+                          type: object
+                      type: object
                     systemApplications:
                       description: SystemApplications contains configuration for system applications.
                       properties:

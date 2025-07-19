@@ -548,6 +548,24 @@ type ApplicationDefinitionsConfiguration struct {
 
 	// DefaultApplicationCatalog contains configuration for the default application catalog.
 	DefaultApplicationCatalog DefaultApplicationCatalogSettings `json:"defaultApplicationCatalog,omitempty"`
+
+	// Manager contains configuration for the Application Definition Manager
+	// that is responsible for managing the Application Definitions in the cluster from specified OCI registries.
+	Manager ManagerSettings `json:"manager,omitempty"`
+}
+
+type ManagerSettings struct {
+	RegistrySettings RegistrySettings `json:"registrySettings,omitempty"`
+}
+
+type RegistrySettings struct {
+	// RegistryURL is the URL of the OCI registry where the Application Definitions are stored.
+	// e.g. oci://localhost:5000/myrepo.
+	RegistryURL string `json:"registryURL,omitempty"`
+
+	// Tag is the tag of the OCI registry where the Application Definitions are stored.
+	// e.g. v1.0.0.
+	Tag string `json:"tag,omitempty"`
 }
 
 type SystemApplicationsSettings struct {
