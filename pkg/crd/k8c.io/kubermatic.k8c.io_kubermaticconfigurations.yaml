@@ -203,6 +203,23 @@ spec:
                                 e.g. v1.0.0.
                               type: string
                           type: object
+                        selectors:
+                          properties:
+                            fromRegistry:
+                              properties:
+                                metadataSelector:
+                                  properties:
+                                    tiers:
+                                      items:
+                                        type: string
+                                      type: array
+                                  type: object
+                                nameSelector:
+                                  items:
+                                    type: string
+                                  type: array
+                              type: object
+                          type: object
                       type: object
                     systemApplications:
                       description: SystemApplications contains configuration for system applications.

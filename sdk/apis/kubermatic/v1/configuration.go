@@ -555,7 +555,21 @@ type ApplicationDefinitionsConfiguration struct {
 }
 
 type ManagerSettings struct {
-	RegistrySettings RegistrySettings `json:"registrySettings,omitempty"`
+	RegistrySettings     RegistrySettings     `json:"registrySettings,omitempty"`
+	ApplicationFiltering ApplicationSelectors `json:"selectors,omitempty"`
+}
+
+type ApplicationSelectors struct {
+	FromRegistry FromRegistrySelector `json:"fromRegistry,omitempty"`
+}
+
+type FromRegistrySelector struct {
+	MetadataSelector ApplicationMetadataSelector `json:"metadataSelector,omitempty"`
+	NameSelector     []string                    `json:"nameSelector,omitempty"`
+}
+
+type ApplicationMetadataSelector struct {
+	Tiers []string `json:"tiers,omitempty"`
 }
 
 type RegistrySettings struct {
