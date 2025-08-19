@@ -580,6 +580,28 @@ type RegistrySettings struct {
 	// Tag is the tag of the OCI registry where the Application Definitions are stored.
 	// e.g. v1.0.0.
 	Tag string `json:"tag,omitempty"`
+
+	// Credentials are optional and hold the ref to the secret with Helm credentials.
+	// Either username / password or registryConfigFile can be defined.
+	Credentials *RegistryCredentials `json:"credentials,omitempty"`
+}
+
+type RegistryCredentials struct {
+	// Username holds the ref and key in the secret for the username credential.
+	// The Secret must exist in the namespace where KKP is installed (default is "kubermatic").
+	// The Secret must be annotated with `apps.kubermatic.k8c.io/secret-type:` set to "helm" or "git"
+	Username *corev1.SecretKeySelector `json:"username,omitempty"`
+
+	// Password holds the ref and key in the secret for the password credential.
+	// The Secret must exist in the namespace where KKP is installed (default is "kubermatic").
+	// The Secret must be annotated with `apps.kubermatic.k8c.io/secret-type:` set to "helm" or "git"
+	Password *corev1.SecretKeySelector `json:"password,omitempty"`
+
+	// RegistryConfigFile holds the ref and key in the secret for the registry credential file.
+	// The value is dockercfg file that follows the same format rules as ~/.docker/config.json.
+	// The Secret must exist in the namespace where KKP is installed (default is "kubermatic").
+	// The Secret must be annotated with `apps.kubermatic.k8c.io/secret-type:` set to "helm" or "git"
+	RegistryConfigFile *corev1.SecretKeySelector `json:"registryConfigFile,omitempty"`
 }
 
 type SystemApplicationsSettings struct {
