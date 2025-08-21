@@ -19,8 +19,11 @@ limitations under the License.
 package images
 
 import (
+	"context"
 	"fmt"
 	"iter"
+	"k8c.io/kubermatic/v2/pkg/features"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -75,13 +78,33 @@ func getAdditionalImagesFromReconcilers(templateData *resources.TemplateData) (i
 }
 
 func DefaultAppsHelmCharts(
+	ctx context.Context,
 	config *kubermaticv1.KubermaticConfiguration,
+	client ctrlruntimeclient.Client,
 	logger logrus.FieldLogger,
 	helmClient helm.Client,
 	helmTimeout time.Duration,
 	registryPrefix string,
 ) iter.Seq2[*AppsHelmChart, error] {
 	log := kubermaticlog.NewDefault().Sugar()
+	if config.Spec.FeatureGates[features.ExternalApplicationDefinitionManager] {
+		defaultAppDefReconcilers, err := applicationcatalog.ApplicationCatalogFromExternalManager(
+			ctx,
+			log,
+			client,
+			config,
+			true,
+		)
+		if err != nil {
+			return func(yield func(*AppsHelmChart, error) bool) {
+				yield(nil, fmt.Errorf("failed to get default application definition reconciler factories: %w", err))
+			}
+		}
+
+		return getHelmChartRenderFunc(
+			config, logger, helmClient, helmTimeout, registryPrefix, defaultAppDefReconcilers,
+		)
+	}
 	defaultAppDefReconcilers, err := applicationcatalog.DefaultApplicationCatalogReconcilerFactories(log, config, true)
 	if err != nil {
 		return func(yield func(*AppsHelmChart, error) bool) {

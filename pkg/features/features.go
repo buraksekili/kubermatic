@@ -65,6 +65,9 @@ const (
 	// and disable related controllers and components such as the userSSHKeySynchronizerFactoryCreator and
 	// usersshkeyprojectownershipcontroller.
 	DisableUserSSHKey = "DisableUserSSHKey"
+
+	// ExternalApplicationDefinitionManager enables the new out-tree Application Catalog manager.
+	ExternalApplicationDefinitionManager = "ExternalApplicationDefinitionManager"
 )
 
 // FeatureGate is map of key=value pairs that enables/disables various features.

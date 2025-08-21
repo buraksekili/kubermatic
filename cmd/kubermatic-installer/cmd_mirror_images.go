@@ -22,6 +22,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	ctrlruntimeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"strings"
 	"time"
 
@@ -64,6 +67,8 @@ type MirrorImagesOptions struct {
 	HelmValuesFile string
 	HelmTimeout    time.Duration
 	HelmBinary     string
+
+	KubeContext string
 }
 
 func MirrorImagesCommand(logger *logrus.Logger, versions kubermaticversion.Versions) *cobra.Command {
@@ -89,6 +94,10 @@ func MirrorImagesCommand(logger *logrus.Logger, versions kubermaticversion.Versi
 
 			if opt.HelmBinary == "" {
 				opt.HelmBinary = os.Getenv("HELM_BINARY")
+			}
+
+			if opt.KubeContext == "" {
+				opt.KubeContext = os.Getenv("KUBE_CONTEXT")
 			}
 
 			if len(args) >= 1 {
@@ -124,6 +133,7 @@ func MirrorImagesCommand(logger *logrus.Logger, versions kubermaticversion.Versi
 	cmd.PersistentFlags().StringVar(&opt.HelmValuesFile, "helm-values", "", "Use this values.yaml when rendering Helm charts")
 	cmd.PersistentFlags().StringVar(&opt.HelmBinary, "helm-binary", opt.HelmBinary, "Helm 3.x binary to use for rendering charts")
 
+	cmd.PersistentFlags().StringVar(&opt.KubeContext, "kube-context", "", "context to use from the given kubeconfig")
 	return cmd
 }
 
@@ -358,7 +368,23 @@ func MirrorImagesFunc(logger *logrus.Logger, versions kubermaticversion.Versions
 				imageSet.Insert(sysChart.WorkloadImages...)
 			}
 
-			for defaultChart, err := range images.DefaultAppsHelmCharts(copyKubermaticConfig, logger, helmClient, options.HelmTimeout, options.RegistryPrefix) {
+			ctrlConfig, err := ctrlruntimeconfig.GetConfigWithContext(options.KubeContext)
+			if err != nil {
+				return fmt.Errorf("failed to get config: %w", err)
+			}
+
+			mgr, err := manager.New(ctrlConfig, manager.Options{
+				Metrics:                metricsserver.Options{BindAddress: "0"},
+				HealthProbeBindAddress: "0",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to construct mgr: %w", err)
+			}
+
+			kubeClient := mgr.GetClient()
+
+			charts := images.DefaultAppsHelmCharts(ctx, copyKubermaticConfig, kubeClient, logger, helmClient, options.HelmTimeout, options.RegistryPrefix)
+			for defaultChart, err := range charts {
 				if err != nil {
 					return err
 				}

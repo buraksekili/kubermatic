@@ -98,7 +98,7 @@ require (
 	helm.sh/helm/v3 v3.17.4
 	k8c.io/kubelb v1.1.2
 	k8c.io/kubeone v1.7.3
-	k8c.io/kubermatic/sdk/v2 v2.0.0-00010101000000-000000000000
+	k8c.io/kubermatic/sdk/v2 v2.28.1
 	k8c.io/machine-controller/sdk v1.62.0
 	k8c.io/operating-system-manager v1.7.1-0.20250704091613-71af543cb934
 	k8c.io/reconciler v0.5.0
@@ -123,7 +123,11 @@ require (
 	sigs.k8s.io/yaml v1.4.0
 )
 
-require gopkg.in/yaml.v2 v2.4.0
+require (
+	gopkg.in/yaml.v2 v2.4.0
+	oras.land/oras-go v1.2.6
+	oras.land/oras-go/v2 v2.6.0
+)
 
 require (
 	cel.dev/expr v0.19.1 // indirect
@@ -365,7 +369,7 @@ require (
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852 // indirect
 	github.com/open-policy-agent/opa v0.68.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.0 // indirect
+	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
@@ -472,7 +476,7 @@ require (
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
@@ -487,7 +491,6 @@ require (
 	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f // indirect
 	k8s.io/pod-security-admission v0.31.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
-	oras.land/oras-go v1.2.6 // indirect
 	sigs.k8s.io/gateway-api v1.1.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/kustomize/api v0.18.0 // indirect
