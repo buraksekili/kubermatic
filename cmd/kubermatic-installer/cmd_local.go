@@ -332,9 +332,9 @@ func prepareHelmValues(dir, kkpEndpoint string) (string, error) {
 	return prepareYAMLFile(dir, "values", func(doc *yamled.Document) error {
 		// new gateway api migration
 		doc.Set(yamled.Path{"migrateGatewayAPI"}, true)
-		doc.Set(yamled.Path{"httproute", "gatewayName"}, "kubermatic")
-		doc.Set(yamled.Path{"httproute", "gatewayNamespace"}, "kubermatic")
-		doc.Set(yamled.Path{"httproute", "domain"}, kkpEndpoint)
+		doc.Set(yamled.Path{"httpRoute", "gatewayName"}, "kubermatic")
+		doc.Set(yamled.Path{"httpRoute", "gatewayNamespace"}, "kubermatic")
+		doc.Set(yamled.Path{"httpRoute", "domain"}, kkpEndpoint)
 		doc.Remove(yamled.Path{"nginx"})
 
 		// configure envoy proxy
