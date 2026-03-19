@@ -196,6 +196,14 @@ gateway:
     replicas: 1
 
     envoyGateway:
+      # Image can be specified in two ways:
+      # 1. Repository and tag separately (recommended):
+      image:
+        repository: ""
+        tag: ""
+      # 2. Or via gateway.global.imageRegistry and gateway.global.images.envoyGateway.image.
+      # When both image.repository and global.images.envoyGateway.image are empty,
+      # the upstream default (docker.io/envoyproxy/gateway:v1.6.1) is used.
       resources:
         requests:
           cpu: 100m
