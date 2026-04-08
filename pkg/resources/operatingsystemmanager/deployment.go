@@ -56,6 +56,8 @@ var controllerResourceRequirements = map[string]*corev1.ResourceRequirements{
 
 const (
 	Tag = "v1.10.3"
+
+	ImagePath = resources.RegistryQuay + "/kubermatic/operating-system-manager"
 )
 
 type operatingSystemManagerData interface {
@@ -155,7 +157,7 @@ func DeploymentReconcilerWithoutInitWrapper(data operatingSystemManagerData) rec
 				nodePortRange:    data.ComputedNodePortRange(),
 			}
 
-			repository := registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/operating-system-manager"))
+			repository := registry.Must(data.RewriteImage(ImagePath))
 			if r := data.OperatingSystemManagerImageRepository(); r != "" {
 				repository = r
 			}

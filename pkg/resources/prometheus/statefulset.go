@@ -37,6 +37,8 @@ const (
 
 	volumeConfigName = "config"
 	volumeDataName   = "data"
+
+	prometheusImagePath = resources.RegistryQuay + "/prometheus/prometheus"
 )
 
 var defaultResourceRequirements = map[string]*corev1.ResourceRequirements{
@@ -101,7 +103,7 @@ func StatefulSetReconciler(data *resources.TemplateData) reconciling.NamedStatef
 			set.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:  resources.PrometheusStatefulSetName,
-					Image: registry.Must(data.RewriteImage(resources.RegistryQuay + "/prometheus/prometheus:" + tag)),
+					Image: registry.Must(data.RewriteImage(prometheusImagePath + ":" + tag)),
 					Args: []string{
 						"--config.file=/etc/prometheus/config/prometheus.yaml",
 						"--storage.tsdb.path=/var/prometheus/data",

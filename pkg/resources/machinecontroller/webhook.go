@@ -95,7 +95,7 @@ func WebhookDeploymentReconciler(data machinecontrollerData) reconciling.NamedDe
 
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{}
 
-			repository := registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/machine-controller"))
+			repository := registry.Must(data.RewriteImage(ImagePath))
 			if r := data.MachineControllerImageRepository(); r != "" {
 				repository = r
 			}

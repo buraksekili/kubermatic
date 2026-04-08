@@ -70,6 +70,8 @@ const (
 	// kubernetes pod status.
 	podPhaseKey = "status.phase"
 
+	kubeoneUtilImagePath = "quay.io/kubermatic/util"
+
 	// ImportAction is the action to import kubeone cluster.
 	ImportAction = "import"
 
@@ -1056,7 +1058,7 @@ func (r *reconciler) generateKubeOneActionJob(ctx context.Context, log *zap.Suga
 					InitContainers: []corev1.Container{
 						{
 							Name:    "copy-ro-manifest",
-							Image:   registry.Must(data.RewriteImage("quay.io/kubermatic/util:2.8.0")),
+							Image:   registry.Must(data.RewriteImage(kubeoneUtilImagePath + ":2.8.0")),
 							Command: []string{"/bin/sh"},
 							Args: []string{
 								"-c",

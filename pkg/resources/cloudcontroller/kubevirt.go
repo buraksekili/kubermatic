@@ -33,6 +33,8 @@ import (
 const (
 	KubeVirtCCMDeploymentName = "kubevirt-cloud-controller-manager"
 	KubeVirtCCMTag            = "v0.5.1"
+
+	KubeVirtCCMImagePath = resources.RegistryQuay + "/kubevirt/kubevirt-cloud-controller-manager"
 )
 
 var (
@@ -87,7 +89,7 @@ func kubevirtDeploymentReconciler(data *resources.TemplateData) reconciling.Name
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:         ccmContainerName,
-					Image:        registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubevirt/kubevirt-cloud-controller-manager:" + KubeVirtCCMTag)),
+					Image:        registry.Must(data.RewriteImage(KubeVirtCCMImagePath + ":" + KubeVirtCCMTag)),
 					Command:      []string{"/bin/kubevirt-cloud-controller-manager"},
 					Args:         getKVFlags(data),
 					Env:          getEnvVars(),

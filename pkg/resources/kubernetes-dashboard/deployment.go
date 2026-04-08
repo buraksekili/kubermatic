@@ -130,7 +130,7 @@ func getContainers(data kubernetesDashboardData, existingContainers []corev1.Con
 
 	return []corev1.Container{{
 		Name:            name,
-		Image:           registry.Must(data.RewriteImage(fmt.Sprintf("%s/%s:%s", resources.RegistryDocker, imageName, tag))),
+		Image:           registry.Must(data.RewriteImage(resources.RegistryDocker + "/" + imageName + ":" + tag)),
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"/dashboard"},
 		Args: []string{

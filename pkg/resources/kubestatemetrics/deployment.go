@@ -50,6 +50,8 @@ const (
 	name      = "kube-state-metrics"
 	version   = "v2.12.0"
 	tmpVolume = "tmp"
+
+	kubeStateMetricsImagePath = resources.RegistryK8S + "/kube-state-metrics/kube-state-metrics"
 )
 
 // DeploymentReconciler returns the function to create and update the kube-state-metrics deployment.
@@ -92,7 +94,7 @@ func DeploymentReconciler(data *resources.TemplateData) reconciling.NamedDeploym
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    name,
-					Image:   registry.Must(data.RewriteImage(resources.RegistryK8S + "/kube-state-metrics/kube-state-metrics:" + version)),
+					Image:   registry.Must(data.RewriteImage(kubeStateMetricsImagePath + ":" + version)),
 					Command: []string{"/kube-state-metrics"},
 					Args: []string{
 						"--kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",

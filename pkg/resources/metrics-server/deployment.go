@@ -58,6 +58,8 @@ const (
 	servingCertMountFolder = "/etc/serving-cert"
 
 	tag = "v0.7.0"
+
+	metricsServerImagePath = resources.RegistryK8S + "/metrics-server/metrics-server"
 )
 
 // metricsServerData is the data needed to construct the metrics-server components.
@@ -107,7 +109,7 @@ func DeploymentReconciler(data metricsServerData) reconciling.NamedDeploymentRec
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    name,
-					Image:   registry.Must(data.RewriteImage(resources.RegistryK8S + "/metrics-server/metrics-server:" + tag)),
+					Image:   registry.Must(data.RewriteImage(metricsServerImagePath + ":" + tag)),
 					Command: []string{"/metrics-server"},
 					Args: []string{
 						"--kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",

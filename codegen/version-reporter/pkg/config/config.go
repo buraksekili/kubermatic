@@ -177,6 +177,30 @@ func (c *Config) Sort() {
 	}
 }
 
+// TrackedConstant identifies a Go constant by package and name.
+type TrackedConstant struct {
+	Package  string
+	Constant string
+}
+
+// TrackedGoConstants returns all goConstant occurrences as a lookup set,
+// mapping each {package, constant} pair to the product name.
+func (c *Config) TrackedGoConstants() map[TrackedConstant]string {
+	result := make(map[TrackedConstant]string)
+	for _, product := range c.Products {
+		for _, occ := range product.Occurrences {
+			if occ.GoConstant != nil {
+				key := TrackedConstant{
+					Package:  occ.GoConstant.Package,
+					Constant: occ.GoConstant.Constant,
+				}
+				result[key] = product.Name
+			}
+		}
+	}
+	return result
+}
+
 func validateConfig(cfg *Config) error {
 	for idx, product := range cfg.Products {
 		if product.Name == "" {

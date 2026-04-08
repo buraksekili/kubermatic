@@ -30,12 +30,14 @@ import (
 type options struct {
 	configFile string
 	json       bool
+	audit      bool
 }
 
 func main() {
 	opt := options{}
 	flag.StringVar(&opt.configFile, "config", "", "path to the config file")
 	flag.BoolVar(&opt.json, "json", false, "output JSON instead of plaintext")
+	flag.BoolVar(&opt.audit, "audit", false, "scan Go source for untracked Image references")
 	flag.Parse()
 
 	cfg, err := config.Load(opt.configFile)
@@ -45,6 +47,13 @@ func main() {
 
 	// detect all versions
 	success := reader.ResolveConfig(cfg)
+
+	if opt.audit {
+		auditSuccess := reader.AuditImageReferences(cfg)
+		if !auditSuccess {
+			success = false
+		}
+	}
 
 	// cheat: remove common prefix from package names for easier readability
 	for pdx, product := range cfg.Products {

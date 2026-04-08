@@ -67,6 +67,9 @@ const (
 	statusPath   = "/run/openvpn/openvpn-status"
 	exporterPort = 9176
 	version      = "v2.5.2-r0"
+
+	openvpnImagePath        = resources.RegistryQuay + "/kubermatic/openvpn"
+	openvpnExporterImagePath = resources.RegistryDocker + "/kumina/openvpn-exporter"
 )
 
 type openVPNDeploymentReconcilerData interface {
@@ -143,7 +146,7 @@ func DeploymentReconciler(data openVPNDeploymentReconcilerData) reconciling.Name
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{
 				{
 					Name:    "iptables-init",
-					Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/openvpn:" + version)),
+					Image:   registry.Must(data.RewriteImage(openvpnImagePath + ":" + version)),
 					Command: []string{"/bin/bash"},
 					Args: []string{
 						"-c", `# do not give a 10.20.0.0/24 route to clients (nodes) but
@@ -202,7 +205,7 @@ iptables -A INPUT -i tun0 -j DROP
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    name,
-					Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/openvpn:v2.5.2-r0")),
+					Image:   registry.Must(data.RewriteImage(openvpnImagePath + ":v2.5.2-r0")),
 					Command: []string{"/usr/sbin/openvpn"},
 					Args:    vpnArgs,
 					Ports: []corev1.ContainerPort{
@@ -255,7 +258,7 @@ iptables -A INPUT -i tun0 -j DROP
 				},
 				{
 					Name:    "ip-fixup",
-					Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/openvpn:v2.5.2-r0")),
+					Image:   registry.Must(data.RewriteImage(openvpnImagePath + ":v2.5.2-r0")),
 					Command: []string{"/bin/bash"},
 					Args: []string{
 						"-c",
@@ -274,7 +277,7 @@ done`,
 				},
 				{
 					Name:    "openvpn-exporter",
-					Image:   registry.Must(data.RewriteImage(resources.RegistryDocker + "/kumina/openvpn-exporter:v0.2.2")),
+					Image:   registry.Must(data.RewriteImage(openvpnExporterImagePath + ":v0.2.2")),
 					Command: []string{"/bin/openvpn_exporter"},
 					Args: []string{
 						"-openvpn.status_paths",

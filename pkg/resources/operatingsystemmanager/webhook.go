@@ -71,7 +71,7 @@ func WebhookDeploymentReconciler(data operatingSystemManagerData) reconciling.Na
 
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{}
 
-			repository := registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/operating-system-manager"))
+			repository := registry.Must(data.RewriteImage(ImagePath))
 			if r := data.OperatingSystemManagerImageRepository(); r != "" {
 				repository = r
 			}

@@ -42,6 +42,8 @@ const (
 	dataDir = "/var/run/etcd/pod_$(POD_NAME)/"
 
 	memberListPattern = "etcd-%d=http://etcd-%d.%s.%s.svc.cluster.local:2380"
+
+	etcdImagePath = resources.RegistryK8S + "/etcd"
 )
 
 var (
@@ -239,7 +241,7 @@ func StatefulSetReconciler(data etcdStatefulSetReconcilerData, enableDataCorrupt
 			set.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:            resources.EtcdStatefulSetName,
-					Image:           registry.Must(data.RewriteImage(resources.RegistryK8S + "/etcd:" + imageTag + "-0")),
+					Image:           registry.Must(data.RewriteImage(etcdImagePath + ":" + imageTag + "-0")),
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         getEtcdCommand(data.Cluster(), enableDataCorruptionChecks, launcherEnabled, quotaBackendGB),
 					Env:             etcdEnv,

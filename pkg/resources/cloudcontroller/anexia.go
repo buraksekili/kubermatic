@@ -35,6 +35,8 @@ import (
 const (
 	AnexiaCCMDeploymentName = "anx-cloud-controller-manager"
 	anexiaCCMVersion        = "1.5.9"
+
+	anexiaCCMImagePath = "anx-cr.io/anexia/anx-cloud-controller-manager"
 )
 
 func anexiaDeploymentReconciler(data *resources.TemplateData) reconciling.NamedDeploymentReconcilerFactory {
@@ -47,7 +49,7 @@ func anexiaDeploymentReconciler(data *resources.TemplateData) reconciling.NamedD
 			deployment.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:  ccmContainerName,
-					Image: registry.Must(data.RewriteImage("anx-cr.io/anexia/anx-cloud-controller-manager:" + anexiaCCMVersion)),
+					Image: registry.Must(data.RewriteImage(anexiaCCMImagePath + ":" + anexiaCCMVersion)),
 					Command: []string{
 						"/app/ccm",
 						"--cloud-provider=anexia",

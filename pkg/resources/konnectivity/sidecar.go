@@ -35,6 +35,8 @@ const (
 	// It sets the receive channel buffer size for packet handling.
 	defaultXfrChannelSize = 150
 
+	proxyServerImagePath = resources.RegistryK8S + "/kas-network-proxy/proxy-server"
+
 	// Supported Kubernetes versions.
 	v132 = "1.32"
 	v133 = "1.33"
@@ -69,7 +71,7 @@ func ProxySidecar(data *resources.TemplateData, serverCount int32) (*corev1.Cont
 
 	knpSrvContainer := corev1.Container{
 		Name:            resources.KonnectivityServerContainer,
-		Image:           registry.Must(data.RewriteImage(fmt.Sprintf("%s/kas-network-proxy/proxy-server:%s", resources.RegistryK8S, NetworkProxyVersion(clusterVersion)))),
+		Image:           registry.Must(data.RewriteImage(proxyServerImagePath + ":" + NetworkProxyVersion(clusterVersion))),
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command: []string{
 			"/proxy-server",

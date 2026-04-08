@@ -33,6 +33,8 @@ import (
 
 const (
 	AWSCCMDeploymentName = "aws-cloud-controller-manager"
+
+	awsCCMImagePath = resources.RegistryK8S + "/provider-aws/cloud-controller-manager"
 )
 
 var (
@@ -83,7 +85,7 @@ func awsDeploymentReconciler(data *resources.TemplateData) reconciling.NamedDepl
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    ccmContainerName,
-					Image:   registry.Must(data.RewriteImage(resources.RegistryK8S + "/provider-aws/cloud-controller-manager:" + ccmVersion)),
+					Image:   registry.Must(data.RewriteImage(awsCCMImagePath + ":" + ccmVersion)),
 					Command: flags,
 					Env: append(
 						getEnvVars(),

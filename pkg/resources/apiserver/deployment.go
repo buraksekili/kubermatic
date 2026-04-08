@@ -62,6 +62,9 @@ var (
 const (
 	name                 = "apiserver"
 	auditLogsSidecarName = "audit-logs"
+
+	kubeAPIServerImagePath = resources.RegistryK8S + "/kube-apiserver"
+	fluentBitImagePath     = resources.RegistryDocker + "/fluent/fluent-bit"
 )
 
 // DeploymentReconciler returns the function to create and update the API server deployment.
@@ -169,7 +172,7 @@ func DeploymentReconciler(data *resources.TemplateData, enableOIDCAuthentication
 
 			apiserverContainer := &corev1.Container{
 				Name:    resources.ApiserverDeploymentName,
-				Image:   registry.Must(data.RewriteImage(resources.RegistryK8S + "/kube-apiserver:v" + version.String())),
+				Image:   registry.Must(data.RewriteImage(kubeAPIServerImagePath + ":v" + version.String())),
 				Command: []string{"/usr/local/bin/kube-apiserver"},
 				Env:     envVars,
 				Args:    flags,
@@ -254,7 +257,7 @@ func DeploymentReconciler(data *resources.TemplateData, enableOIDCAuthentication
 				dep.Spec.Template.Spec.Containers = append(dep.Spec.Template.Spec.Containers,
 					corev1.Container{
 						Name:    auditLogsSidecarName,
-						Image:   registry.Must(data.RewriteImage(resources.RegistryDocker + "/fluent/fluent-bit:4.0.0")),
+						Image:   registry.Must(data.RewriteImage(fluentBitImagePath + ":4.0.0")),
 						Command: []string{"/fluent-bit/bin/fluent-bit"},
 						Args:    []string{"-c", "/etc/fluent-bit/fluent-bit.conf"},
 						VolumeMounts: []corev1.VolumeMount{

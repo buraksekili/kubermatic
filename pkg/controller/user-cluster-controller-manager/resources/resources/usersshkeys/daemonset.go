@@ -33,6 +33,8 @@ import (
 const (
 	daemonSetName = "user-ssh-keys-agent"
 	dockerImage   = "kubermatic/user-ssh-keys-agent"
+
+	userSSHKeysAgentImagePath = resources.RegistryQuay + "/kubermatic/user-ssh-keys-agent"
 )
 
 var (
@@ -62,7 +64,7 @@ func DaemonSetReconciler(versions kubermatic.Versions, imageRewriter registry.Im
 				{
 					Name:            daemonSetName,
 					ImagePullPolicy: corev1.PullAlways,
-					Image:           registry.Must(imageRewriter(fmt.Sprintf("%s/%s:%s", resources.RegistryQuay, dockerImage, versions.KubermaticContainerTag))),
+					Image:           registry.Must(imageRewriter(userSSHKeysAgentImagePath + ":" + versions.KubermaticContainerTag)),
 					Command:         []string{fmt.Sprintf("/usr/local/bin/%v", daemonSetName)},
 					VolumeMounts: []corev1.VolumeMount{
 						{

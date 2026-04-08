@@ -32,6 +32,8 @@ import (
 const (
 	HetznerCCMDeploymentName = "hcloud-cloud-controller-manager"
 	hetznerCCMVersion        = "v1.29.2" // https://github.com/hetznercloud/hcloud-cloud-controller-manager#versioning-policy
+
+	hetznerCCMImagePath = resources.RegistryDocker + "/hetznercloud/hcloud-cloud-controller-manager"
 )
 
 var (
@@ -65,7 +67,7 @@ func hetznerDeploymentReconciler(data *resources.TemplateData) reconciling.Named
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:  ccmContainerName,
-					Image: registry.Must(data.RewriteImage(resources.RegistryDocker + "/hetznercloud/hcloud-cloud-controller-manager:" + hetznerCCMVersion)),
+					Image: registry.Must(data.RewriteImage(hetznerCCMImagePath + ":" + hetznerCCMVersion)),
 					Command: []string{
 						"/bin/hcloud-cloud-controller-manager",
 						"--kubeconfig=/etc/kubernetes/kubeconfig/kubeconfig",

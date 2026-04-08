@@ -21,24 +21,36 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
           constant: anexiaCCMVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: anexiaCCMImagePath
 
   - name: "CCM: AWS"
     source: https://github.com/kubernetes/cloud-provider-aws
     occurrences:
       - goFunction:
           function: callAWSCCMVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: awsCCMImagePath
 
   - name: "CCM: Azure"
     source: https://github.com/kubernetes/cloud-provider-azure
     occurrences:
       - goFunction:
           function: callAzureCCMVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: azureCCMImagePath
 
   - name: "CCM: DigitalOcean"
     source: https://github.com/digitalocean/digitalocean-cloud-controller-manager
     occurrences:
       - goFunction:
           function: callDigitaloceanCCMVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: digitaloceanCCMImagePath
 
   - name: "CCM: Hetzner"
     source: https://github.com/hetznercloud/hcloud-cloud-controller-manager
@@ -46,12 +58,18 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
           constant: hetznerCCMVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: hetznerCCMImagePath
 
   - name: "CCM: GCP"
     source: https://github.com/kubernetes/cloud-provider-gcp
     occurrences:
       - goFunction:
           function: callGCPCCMVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: gcpCCMImagePath
 
   - name: "CCM: KubeVirt"
     source: https://github.com/kubermatic/cloud-provider-kubevirt
@@ -59,6 +77,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
           constant: KubeVirtCCMTag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: KubeVirtCCMImagePath
 
   - name: "CCM: OpenStack"
     source: https://github.com/kubernetes/cloud-provider-openstack
@@ -78,6 +99,24 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
           constant: csiVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
+          constant: kubevirtCSIDriverImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
+          constant: csiExternalProvisionerImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
+          constant: csiExternalAttacherImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
+          constant: csiLivenessProbeImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
+          constant: csiSnapshotterImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/kubevirt
+          constant: csiResizerImagePath
 
   - name: VMware Cloud Director CSI
     source: https://github.com/vmware/cloud-director-named-disk-csi-driver
@@ -85,6 +124,18 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/csi/vmwareclouddirector
           constant: csiVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/vmwareclouddirector
+          constant: vcdCSIDriverImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/vmwareclouddirector
+          constant: csiAttacherImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/vmwareclouddirector
+          constant: csiProvisionerImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/csi/vmwareclouddirector
+          constant: csiResizerImagePath
 
   - name: CoreDNS
     source: https://github.com/kubernetes/kubernetes
@@ -97,6 +148,9 @@ products:
     occurrences:
       - goFunction:
           function: callKonnectivityVersion
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/konnectivity
+          constant: proxyServerImagePath
 
   - name: OpenVPN
     source: https://github.com/kubermatic/openvpn
@@ -104,6 +158,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/openvpn
           constant: version
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/openvpn
+          constant: openvpnImagePath
 
   - name: Kubernetes Dashboard
     source: https://github.com/kubernetes/dashboard
@@ -113,6 +170,12 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/kubernetes-dashboard
           constant: scraperTag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/kubernetes-dashboard
+          constant: scraperImageName
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/kubernetes-dashboard
+          constant: imageName
 
   - name: machine-controller (MC)
     source: https://github.com/kubermatic/machine-controller
@@ -120,6 +183,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/machinecontroller
           constant: Tag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/machinecontroller
+          constant: ImagePath
 
   - name: Operating System Manager (OSM)
     source: https://github.com/kubermatic/operating-system-manager
@@ -127,6 +193,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/operatingsystemmanager
           constant: Tag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/operatingsystemmanager
+          constant: ImagePath
 
   - name: Metrics Server
     source: https://github.com/kubernetes-sigs/metrics-server
@@ -137,6 +206,12 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/metrics-server
           constant: imageTag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/metrics-server
+          constant: metricsServerImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/metrics-server
+          constant: metricsServerImagePath
 
   - name: KubeLB (Enterprise Edition)
     source: https://github.com/kubermatic/kubelb
@@ -151,6 +226,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources
           constant: KubeOneImageTag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources
+          constant: KubeOneImage
 
   - name: Metering
     source: https://github.com/kubermatic/kubermatic
@@ -165,6 +243,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/gatekeeper
           constant: tag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/gatekeeper
+          constant: imageName
 
   - name: Vertical Pod Autoscaler (VPA)
     source: https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler
@@ -182,6 +263,12 @@ products:
       - helmChart:
           directory: charts/mla/alertmanager-proxy
           valuePath: alertmanagerProxy.proxy.image.tag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/nodeportproxy
+          constant: nodeportProxyImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/envoy-agent
+          constant: envoyImageName
 
   - name: node-local-dns
     source: https://github.com/kubernetes/kubernetes/blob/master/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml
@@ -189,6 +276,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/node-local-dns
           constant: version
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/node-local-dns
+          constant: nodeLocalDNSImagePath
 
   - name: Velero
     source: https://github.com/vmware-tanzu/velero
@@ -268,8 +358,14 @@ products:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/logging-agent
           constant: imageTag
       - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/logging-agent
+          constant: imageName
+      - goConstant:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/monitoring-agent
           constant: tag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/monitoring-agent
+          constant: imageName
 
   - name: Helm Exporter
     source: https://github.com/sstarcher/helm-exporter
@@ -289,6 +385,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/resources/kubestatemetrics
           constant: version
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/kubestatemetrics
+          constant: kubeStateMetricsImagePath
 
   - name: Node Exporter
     source: https://github.com/prometheus/node_exporter
@@ -306,6 +405,9 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/ee/metering/prometheus
           constant: version
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/prometheus
+          constant: prometheusImagePath
 
   - name: "Ingress NGINX Controller"
     source: https://github.com/kubernetes/ingress-nginx
@@ -323,3 +425,104 @@ products:
       - goConstant:
           package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/flatcar/resources
           constant: operatorVersion
+
+  - name: kube-apiserver
+    source: https://github.com/kubernetes/kubernetes
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/apiserver
+          constant: kubeAPIServerImagePath
+
+  - name: kube-controller-manager
+    source: https://github.com/kubernetes/kubernetes
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/controllermanager
+          constant: kubeControllerManagerImagePath
+
+  - name: kube-scheduler
+    source: https://github.com/kubernetes/kubernetes
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/scheduler
+          constant: kubeSchedulerImagePath
+
+  - name: etcd
+    source: https://github.com/kubernetes/kubernetes
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/etcd
+          constant: etcdImagePath
+
+  - name: http-prober
+    source: https://github.com/kubermatic/http-prober
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/apiserver
+          constant: httpProberImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/apiserver
+          constant: tag
+
+  - name: openvpn-exporter
+    source: https://github.com/kumina/openvpn-exporter
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/openvpn
+          constant: openvpnExporterImagePath
+
+  - name: fluent-bit
+    source: https://github.com/fluent/fluent-bit
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/apiserver
+          constant: fluentBitImagePath
+
+  - name: Kubermatic Util
+    source: https://github.com/kubermatic/kubermatic
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/encryption
+          constant: utilImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/cloudcontroller
+          constant: gcpUtilImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/seed-proxy
+          constant: utilImagePath
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/kubeone
+          constant: kubeoneUtilImagePath
+
+  - name: user-ssh-keys-agent
+    source: https://github.com/kubermatic/kubermatic
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/usersshkeys
+          constant: userSSHKeysAgentImagePath
+
+  - name: prometheus-config-reloader
+    source: https://github.com/prometheus-operator/prometheus-operator
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/logging-agent
+          constant: reloaderImageName
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/logging-agent
+          constant: reloaderTag
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/monitoring-agent
+          constant: reloaderImageName
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/mla/monitoring-agent
+          constant: reloaderTag
+
+  - name: MLA Gateway
+    source: https://github.com/kubermatic/kubermatic
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/mla
+          constant: image
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/mla
+          constant: version

@@ -42,6 +42,8 @@ const (
 	imageName          = "kubermatic/nodeport-proxy"
 	envoyAppLabelValue = resources.NodePortProxyEnvoyDeploymentName
 
+	nodeportProxyImagePath = resources.RegistryQuay + "/kubermatic/nodeport-proxy"
+
 	EnvoyVersion = "distroless-v1.37.0"
 
 	// NodePortProxyExposeNamespacedAnnotationKey is the annotation key used to indicate that
@@ -233,7 +235,7 @@ func DeploymentEnvoyReconciler(data nodePortProxyData, versions kubermatic.Versi
 			d.Spec.Template.Spec.InitContainers = []corev1.Container{
 				{
 					Name:  "copy-envoy-config",
-					Image: registry.Must(data.RewriteImage(fmt.Sprintf("%s/%s:%s", resources.RegistryQuay, imageName, data.NodePortProxyTag()))),
+					Image: registry.Must(data.RewriteImage(nodeportProxyImagePath + ":" + data.NodePortProxyTag())),
 					Command: []string{
 						"/bin/cp",
 						"/envoy.yaml",
@@ -250,7 +252,7 @@ func DeploymentEnvoyReconciler(data nodePortProxyData, versions kubermatic.Versi
 
 			d.Spec.Template.Spec.Containers = []corev1.Container{{
 				Name:  "envoy-manager",
-				Image: registry.Must(data.RewriteImage(fmt.Sprintf("%s/%s:%s", resources.RegistryQuay, imageName, data.NodePortProxyTag()))),
+				Image: registry.Must(data.RewriteImage(nodeportProxyImagePath + ":" + data.NodePortProxyTag())),
 				Command: []string{"/envoy-manager",
 					"-listen-address=:8001",
 					"-envoy-node-name=$(PODNAME)",
@@ -367,7 +369,7 @@ func DeploymentLBUpdaterReconciler(data nodePortProxyData) reconciling.NamedDepl
 					"-expose-annotation-key=" + NodePortProxyExposeNamespacedAnnotationKey,
 					"-namespaced=true",
 				},
-				Image: registry.Must(data.RewriteImage(fmt.Sprintf("%s/%s:%s", resources.RegistryQuay, imageName, data.NodePortProxyTag()))),
+				Image: registry.Must(data.RewriteImage(nodeportProxyImagePath + ":" + data.NodePortProxyTag())),
 				Env: []corev1.EnvVar{{
 					Name: "MY_NAMESPACE",
 					ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{

@@ -32,6 +32,8 @@ import (
 
 const (
 	DigitalOceanCCMDeploymentName = "digitalocean-cloud-controller-manager"
+
+	digitaloceanCCMImagePath = resources.RegistryDocker + "/digitalocean/digitalocean-cloud-controller-manager"
 )
 
 var (
@@ -66,7 +68,7 @@ func digitalOceanDeploymentReconciler(data *resources.TemplateData) reconciling.
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    ccmContainerName,
-					Image:   registry.Must(data.RewriteImage(resources.RegistryDocker + "/digitalocean/digitalocean-cloud-controller-manager:" + version)),
+					Image:   registry.Must(data.RewriteImage(digitaloceanCCMImagePath + ":" + version)),
 					Command: []string{"/bin/digitalocean-cloud-controller-manager"},
 					Args:    getDigitalOceanFlags(),
 					Env: []corev1.EnvVar{

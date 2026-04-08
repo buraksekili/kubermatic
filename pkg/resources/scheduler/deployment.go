@@ -48,6 +48,8 @@ var defaultResourceRequirements = corev1.ResourceRequirements{
 
 const (
 	name = "scheduler"
+
+	kubeSchedulerImagePath = resources.RegistryK8S + "/kube-scheduler"
 )
 
 // DeploymentReconciler returns the function to create and update the scheduler deployment.
@@ -122,7 +124,7 @@ func DeploymentReconciler(data *resources.TemplateData) reconciling.NamedDeploym
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    resources.SchedulerDeploymentName,
-					Image:   registry.Must(data.RewriteImage(resources.RegistryK8S + "/kube-scheduler:v" + version.String())),
+					Image:   registry.Must(data.RewriteImage(kubeSchedulerImagePath + ":v" + version.String())),
 					Command: []string{"/usr/local/bin/kube-scheduler"},
 					Args:    flags,
 					Env: []corev1.EnvVar{

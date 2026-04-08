@@ -35,6 +35,8 @@ const (
 	tag                = "v0.5.1"
 	emptyDirVolumeName = "http-prober-bin"
 	initContainerName  = "copy-http-prober"
+
+	httpProberImagePath = resources.RegistryQuay + "/kubermatic/http-prober"
 )
 
 // IsRunningInitContainer returns a init container which will wait until the apiserver is reachable via its ClusterIP.
@@ -99,7 +101,7 @@ func wrapPodSpec(data isRunningInitContainerData, spec corev1.PodSpec, container
 	}
 	copyContainer := corev1.Container{
 		Name:    initContainerName,
-		Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/http-prober:" + tag)),
+		Image:   registry.Must(data.RewriteImage(httpProberImagePath + ":" + tag)),
 		Command: []string{"/bin/cp", "/usr/local/bin/http-prober", "/http-prober-bin/http-prober"},
 		VolumeMounts: []corev1.VolumeMount{{
 			Name:      emptyDirVolumeName,

@@ -54,6 +54,8 @@ const (
 	// Name is the alias for `resources.MachineControllerContainerName` for backward compatibility.
 	Name = resources.MachineControllerContainerName
 	Tag  = "v1.65.0"
+
+	ImagePath = resources.RegistryQuay + "/kubermatic/machine-controller"
 )
 
 type machinecontrollerData interface {
@@ -126,7 +128,7 @@ func DeploymentReconcilerWithoutInitWrapper(data machinecontrollerData) reconcil
 
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{}
 
-			repository := registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/machine-controller"))
+			repository := registry.Must(data.RewriteImage(ImagePath))
 			if r := data.MachineControllerImageRepository(); r != "" {
 				repository = r
 			}

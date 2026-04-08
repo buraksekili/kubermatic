@@ -49,9 +49,11 @@ type openvpnData interface {
 // Also required but not provided by this func:
 // * volumes: resources.OpenVPNClientCertificatesSecretName, resources.CACertSecretName.
 func OpenVPNSidecarContainer(data openvpnData, name string) (*corev1.Container, error) {
+	const openvpnImagePath = resources.RegistryQuay + "/kubermatic/openvpn"
+
 	return &corev1.Container{
 		Name:    name,
-		Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/openvpn:v2.5.2-r0")),
+		Image:   registry.Must(data.RewriteImage(openvpnImagePath + ":v2.5.2-r0")),
 		Command: []string{"/usr/sbin/openvpn"},
 		Args: []string{
 			"--client",

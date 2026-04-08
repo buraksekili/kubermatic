@@ -34,6 +34,9 @@ import (
 
 const (
 	GCPCCMDeploymentName = "gcp-cloud-controller-manager"
+
+	gcpCCMImagePath   = resources.RegistryK8S + "/cloud-provider-gcp/cloud-controller-manager"
+	gcpUtilImagePath  = resources.RegistryQuay + "/kubermatic/util"
 )
 
 var (
@@ -118,7 +121,7 @@ func gcpDeploymentReconciler(data *resources.TemplateData) reconciling.NamedDepl
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:  ccmContainerName,
-					Image: registry.Must(data.RewriteImage(resources.RegistryK8S + "/cloud-provider-gcp/cloud-controller-manager:" + ccmVersion)),
+					Image: registry.Must(data.RewriteImage(gcpCCMImagePath + ":" + ccmVersion)),
 					Args: []string{
 						"/go-runner",
 						"--redirect-stderr=true",
@@ -186,7 +189,7 @@ func gcpDeploymentReconciler(data *resources.TemplateData) reconciling.NamedDepl
 func getGCPInitContainer(data *resources.TemplateData) corev1.Container {
 	return corev1.Container{
 		Name:    "decode-sa",
-		Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/util:2.7.0")),
+		Image:   registry.Must(data.RewriteImage(gcpUtilImagePath + ":2.7.0")),
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",

@@ -36,6 +36,8 @@ const (
 	SecretRevisionLabelKey = "kubermatic.k8c.io/secret-revision"
 	AppLabelValue          = "encryption-runner"
 
+	utilImagePath = resources.RegistryQuay + "/kubermatic/util"
+
 	encryptionJobScript = `
 resources=$(kubectl get %s --all-namespaces --output json | jq -r '.items[] | "\(.metadata.namespace // "default"):\(.kind):\(.metadata.name)"');
 for res in $resources; do
@@ -75,7 +77,7 @@ func EncryptionJobCreator(data encryptionData, cluster *kubermaticv1.Cluster, se
 					Containers: []corev1.Container{
 						{
 							Name:    "encryption-runner",
-							Image:   registry.Must(data.RewriteImage(resources.RegistryQuay + "/kubermatic/util:2.7.0")),
+							Image:   registry.Must(data.RewriteImage(utilImagePath + ":2.7.0")),
 							Command: []string{"/bin/bash", "-c"},
 							Args: []string{
 								fmt.Sprintf(encryptionJobScript, resourceList),

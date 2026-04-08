@@ -17,8 +17,6 @@ limitations under the License.
 package nodelocaldns
 
 import (
-	"fmt"
-
 	"k8c.io/kubermatic/v2/pkg/controller/user-cluster-controller-manager/resources/resources/kubesystem"
 	"k8c.io/kubermatic/v2/pkg/resources"
 	"k8c.io/kubermatic/v2/pkg/resources/registry"
@@ -33,6 +31,8 @@ import (
 
 const (
 	version = "1.25.0"
+
+	nodeLocalDNSImagePath = resources.RegistryK8S + "/dns/k8s-dns-node-cache"
 )
 
 func DaemonSetReconciler(imageRewriter registry.ImageRewriter) reconciling.NamedDaemonSetReconcilerFactory {
@@ -89,7 +89,7 @@ func DaemonSetReconciler(imageRewriter registry.ImageRewriter) reconciling.Named
 			ds.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:            "node-cache",
-					Image:           registry.Must(imageRewriter(fmt.Sprintf("%s/dns/k8s-dns-node-cache:%s", resources.RegistryK8S, version))),
+					Image:           registry.Must(imageRewriter(nodeLocalDNSImagePath + ":" + version)),
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Args: []string{
 						"-localip",

@@ -54,6 +54,8 @@ const (
 	imageName = "metrics-server/metrics-server"
 	imageTag  = "v0.7.0"
 
+	metricsServerImagePath = resources.RegistryK8S + "/metrics-server/metrics-server"
+
 	servingPort = 10250
 )
 
@@ -93,7 +95,7 @@ func DeploymentReconciler(imageRewriter registry.ImageRewriter) reconciling.Name
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    resources.MetricsServerDeploymentName,
-					Image:   registry.Must(imageRewriter(fmt.Sprintf("%s/%s:%s", resources.RegistryK8S, imageName, imageTag))),
+					Image:   registry.Must(imageRewriter(metricsServerImagePath + ":" + imageTag)),
 					Command: []string{"/metrics-server"},
 					Args: []string{
 						"--kubelet-insecure-tls",

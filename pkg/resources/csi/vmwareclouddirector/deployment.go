@@ -32,6 +32,11 @@ import (
 
 const (
 	csiVersion = "1.6.0"
+
+	csiAttacherImagePath    = "registry.k8s.io/sig-storage/csi-attacher"
+	csiProvisionerImagePath = "registry.k8s.io/sig-storage/csi-provisioner"
+	csiResizerImagePath     = "registry.k8s.io/sig-storage/csi-resizer"
+	vcdCSIDriverImagePath   = "projects.registry.vmware.com/vmware-cloud-director/cloud-director-named-disk-csi-driver"
 )
 
 var (
@@ -127,7 +132,7 @@ func ControllerDeploymentReconciler(data *resources.TemplateData) reconciling.Na
 				{
 					Name:            "csi-attacher",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Image:           registry.Must(data.RewriteImage("registry.k8s.io/sig-storage/csi-attacher:v4.3.0")),
+					Image:           registry.Must(data.RewriteImage(csiAttacherImagePath + ":v4.3.0")),
 					Args: []string{
 						"--csi-address=$(ADDRESS)",
 						"--kubeconfig=/etc/kubernetes/kubeconfig/kubeconfig",
@@ -165,7 +170,7 @@ func ControllerDeploymentReconciler(data *resources.TemplateData) reconciling.Na
 				{
 					Name:            "csi-provisioner",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Image:           registry.Must(data.RewriteImage("registry.k8s.io/sig-storage/csi-provisioner:v2.2.2")),
+					Image:           registry.Must(data.RewriteImage(csiProvisionerImagePath + ":v2.2.2")),
 					Args: []string{
 						"--csi-address=$(ADDRESS)",
 						"--kubeconfig=/etc/kubernetes/kubeconfig/kubeconfig",
@@ -204,7 +209,7 @@ func ControllerDeploymentReconciler(data *resources.TemplateData) reconciling.Na
 				{
 					Name:            "csi-resizer",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Image:           registry.Must(data.RewriteImage("registry.k8s.io/sig-storage/csi-resizer:v1.4.0")),
+					Image:           registry.Must(data.RewriteImage(csiResizerImagePath + ":v1.4.0")),
 					Args: []string{
 						"--csi-address=$(ADDRESS)",
 						"--timeout=30s",
@@ -242,7 +247,7 @@ func ControllerDeploymentReconciler(data *resources.TemplateData) reconciling.Na
 				{
 					Name:            "vcd-csi-plugin",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Image:           registry.Must(data.RewriteImage("projects.registry.vmware.com/vmware-cloud-director/cloud-director-named-disk-csi-driver:" + csiVersion)),
+					Image:           registry.Must(data.RewriteImage(vcdCSIDriverImagePath + ":" + csiVersion)),
 					Command:         []string{"/opt/vcloud/bin/cloud-director-named-disk-csi-driver"},
 					Args: []string{
 						"--endpoint=$(CSI_ENDPOINT)",
