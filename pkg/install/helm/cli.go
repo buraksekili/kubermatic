@@ -178,16 +178,19 @@ func (c *cli) InstallChart(namespace string, releaseName string, chartDirectory 
 	}
 
 	if c.version.Major() >= 4 {
-		// Helm 4 defaults --server-side to "auto" and already applies chart objects
-		// server-side. KKP components legitimately co-own fields of some chart-managed
-		// objects (e.g. the operator reconciles .dockerconfigjson of the dockercfg
-		// secret), so a plain server-side apply upgrade fails with field conflicts.
-		// --force-conflicts resolves those in helm's favor without forcing the apply
-		// method to "true", which would rewrite the full object body of every managed
-		// resource on every deploy and overwhelm loaded apiservers (e.g. the large
-		// user-cluster MLA stack). The conflict resolution is driven by --force-conflicts,
-		// not by forcing --server-side=true.
-		command = append(command, "--force-conflicts")
+		// Helm 4 defaults --server-side to "auto" for upgrades, which follows the
+		// apply method of the previous release revision. Releases installed by
+		// Helm 3 have no recorded apply method, so "auto" resolves to client-side
+		// apply. --force-conflicts is only valid while server-side apply is
+		// enabled, so emitting it alone makes Helm reject the command with
+		// "forceConflicts enabled when serverSideApply disabled" on any Helm-3
+		// release. Forcing --server-side=true both enables SSA (so --force-conflicts
+		// is accepted) and migrates the release to SSA on this upgrade.
+		// KKP components legitimately co-own fields of some chart-managed objects
+		// (e.g. the operator reconciles .dockerconfigjson of the dockercfg secret),
+		// so plain SSA would fail with field conflicts; --force-conflicts resolves
+		// those in helm's favor.
+		command = append(command, "--server-side=true", "--force-conflicts")
 	}
 
 	if valuesFile != "" {
