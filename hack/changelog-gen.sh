@@ -48,16 +48,19 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-# Install gchl if not installed
-if ! [ -x "$(command -v gchl)" ]; then
-  echo "Installing k8c.io/gchl…"
+# Install gchl if not installed; go install puts it in $(go env GOPATH)/bin,
+# which is not guaranteed to be on PATH
+GCHL="$(command -v gchl || true)"
+if [ -z "$GCHL" ]; then
+  echo "Installing k8c.io/gchl..."
   go install k8c.io/gchl@latest
+  GCHL="$(go env GOPATH)/bin/gchl"
 fi
 
 FILENAME="$VERSION-$(date +%s).md"
 
-echo "Generating changelog in $FILENAME…"
-gchl \
+echo "Generating changelog in $FILENAME..."
+"$GCHL" \
   --organization kubermatic \
   --repository kubermatic \
   --end "$END" \
