@@ -708,6 +708,9 @@ func getTemplateData(config *kubermaticv1.KubermaticConfiguration, clusterVersio
 		WithVersions(kubermaticVersions).
 		WithCABundle(caBundle).
 		WithKonnectivityEnabled(konnectivityEnabled).
+		// mirror the webhook image regardless of whether a real cluster has the
+		// feature gate on, so offline installs can enable it later
+		WithUserClusterTokenWebhook(true).
 		Build(), nil
 }
 

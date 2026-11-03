@@ -23,6 +23,7 @@ import (
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	stackscommon "k8c.io/kubermatic/v2/pkg/install/stack/common"
 	"k8c.io/kubermatic/v2/pkg/resources"
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/reconciler/pkg/reconciling"
 
 	corev1 "k8s.io/api/core/v1"
@@ -208,6 +209,41 @@ func UserClusterWebhookAllowReconciler(c *kubermaticv1.Cluster) reconciling.Name
 								PodSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
 										resources.AppLabelKey: resources.UserClusterWebhookDeploymentName,
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			return np, nil
+		}
+	}
+}
+
+// KKPTokenWebhookAllowReconciler returns a func to create/update the apiserver egress policy
+// for the per-cluster token webhook. It is only reconciled when the UserClusterTokenWebhook
+// feature gate is enabled.
+func KKPTokenWebhookAllowReconciler(c *kubermaticv1.Cluster) reconciling.NamedNetworkPolicyReconcilerFactory {
+	return func() (string, reconciling.NetworkPolicyReconciler) {
+		return tokenwebhook.NetworkPolicyAPIServerAllow, func(np *networkingv1.NetworkPolicy) (*networkingv1.NetworkPolicy, error) {
+			np.Spec = networkingv1.NetworkPolicySpec{
+				PolicyTypes: []networkingv1.PolicyType{
+					networkingv1.PolicyTypeEgress,
+				},
+				PodSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						resources.AppLabelKey: name,
+					},
+				},
+				Egress: []networkingv1.NetworkPolicyEgressRule{
+					{
+						To: []networkingv1.NetworkPolicyPeer{
+							{
+								PodSelector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{
+										resources.AppLabelKey: tokenwebhook.Name,
 									},
 								},
 							},

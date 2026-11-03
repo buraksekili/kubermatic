@@ -35,6 +35,7 @@ import (
 	"k8c.io/kubermatic/v2/pkg/provider"
 	"k8c.io/kubermatic/v2/pkg/provider/kubernetes"
 	"k8c.io/kubermatic/v2/pkg/resources/certificates"
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/kubermatic/v2/pkg/version/kubermatic"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -77,6 +78,7 @@ type Features struct {
 	EtcdLauncher                  bool
 	DynamicResourceAllocation     bool
 	KubeVirtAcceleratorAccounting bool
+	UserClusterTokenWebhook       bool
 }
 
 // Reconciler is a controller which is responsible for managing clusters.
@@ -246,6 +248,13 @@ func Add(
 			builder.WithPredicates(resourceQuotaAcceleratorAccountingActivationPredicate()),
 		)
 	}
+	if reconciler.features.UserClusterTokenWebhook {
+		bldr.Watches(
+			&kubermaticv1.KubermaticConfiguration{},
+			handler.EnqueueRequestsFromMapFunc(reconciler.enqueueClustersForTokenWebhookSettings),
+			builder.WithPredicates(tokenWebhookSettingsChangedPredicate()),
+		)
+	}
 
 	_, err := bldr.Build(reconciler)
 
@@ -324,6 +333,50 @@ func (r *Reconciler) enqueueKubeVirtClustersForAcceleratorQuotaResourceQuota(ctx
 		if cluster.DeletionTimestamp != nil ||
 			cluster.Spec.Cloud.Kubevirt == nil ||
 			cluster.Labels[kubermaticv1.WorkerNameLabelKey] != r.workerName {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: cluster.Name}})
+	}
+
+	sort.Slice(requests, func(i, j int) bool {
+		return requests[i].Name < requests[j].Name
+	})
+
+	return requests
+}
+
+// tokenWebhookSettingsChangedPredicate passes KubermaticConfiguration updates that
+// change the rendered token webhook settings (webhook Deployment and kube-apiserver flags).
+func tokenWebhookSettingsChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldConfig, oldOK := e.ObjectOld.(*kubermaticv1.KubermaticConfiguration)
+			newConfig, newOK := e.ObjectNew.(*kubermaticv1.KubermaticConfiguration)
+			if !oldOK || !newOK {
+				return false
+			}
+
+			return tokenwebhook.SettingsFrom(oldConfig) != tokenwebhook.SettingsFrom(newConfig)
+		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
+// enqueueClustersForTokenWebhookSettings enqueues every cluster of this worker, as the
+// token webhook settings are global and rendered into each cluster's control plane.
+func (r *Reconciler) enqueueClustersForTokenWebhookSettings(ctx context.Context, _ ctrlruntimeclient.Object) []reconcile.Request {
+	clusters := &kubermaticv1.ClusterList{}
+	if err := r.List(ctx, clusters); err != nil {
+		utilruntime.HandleError(fmt.Errorf("failed to list Clusters for token webhook settings change: %w", err))
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(clusters.Items))
+	for i := range clusters.Items {
+		cluster := &clusters.Items[i]
+		if cluster.DeletionTimestamp != nil || cluster.Labels[kubermaticv1.WorkerNameLabelKey] != r.workerName {
 			continue
 		}
 		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: cluster.Name}})

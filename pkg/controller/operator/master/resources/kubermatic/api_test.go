@@ -17,6 +17,7 @@ limitations under the License.
 package kubermatic
 
 import (
+	"strings"
 	"testing"
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
@@ -74,6 +75,49 @@ func TestAPIDeploymentScheduling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runSchedulingTest(t, tt, setSched, newCreator)
+		})
+	}
+}
+
+func TestAPIDeploymentClientSecretFlag(t *testing.T) {
+	const flag = "-oidc-authenticator-client-secret"
+
+	tests := []struct {
+		name     string
+		secret   string
+		expected string
+	}{
+		{
+			name:     "secret set",
+			secret:   "s3cr3t",
+			expected: flag + "=s3cr3t",
+		},
+		{
+			name: "secret empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newTestConfig()
+			cfg.Spec.Auth.ClientSecret = tt.secret
+
+			_, creator := APIDeploymentReconciler(cfg, "", kubermatic.GetFakeVersions())()
+			deploy, err := creator(&appsv1.Deployment{})
+			if err != nil {
+				t.Fatalf("reconciler failed: %v", err)
+			}
+
+			found := ""
+			for _, arg := range deploy.Spec.Template.Spec.Containers[0].Args {
+				if strings.HasPrefix(arg, flag) {
+					found = arg
+				}
+			}
+
+			if found != tt.expected {
+				t.Fatalf("expected flag %q, got %q", tt.expected, found)
+			}
 		})
 	}
 }

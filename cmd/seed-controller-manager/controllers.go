@@ -52,6 +52,7 @@ import (
 	"k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/pvwatcher"
 	"k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/seedresourcesuptodatecondition"
 	updatecontroller "k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/update-controller"
+	userclustertokencontroller "k8c.io/kubermatic/v2/pkg/controller/seed-controller-manager/user-cluster-token"
 	"k8c.io/kubermatic/v2/pkg/features"
 )
 
@@ -90,6 +91,7 @@ var AllControllers = map[string]controllerCreator{
 	applicationsecretclustercontroller.ControllerName:       createApplicationSecretClusterController,
 	auditloggingenforcement.ControllerName:                  createAuditLoggingEnforcementController,
 	eventratelimitenforcement.ControllerName:                createEventRateLimitEnforcementController,
+	userclustertokencontroller.TokenControllerName:          createUserClusterTokenController,
 }
 
 type controllerCreator func(*controllerContext) error
@@ -170,6 +172,7 @@ func createKubernetesController(ctrlCtx *controllerContext) error {
 			EtcdLauncher:                  ctrlCtx.runOptions.featureGates.Enabled(features.EtcdLauncher),
 			DynamicResourceAllocation:     ctrlCtx.runOptions.featureGates.Enabled(features.DynamicResourceAllocation),
 			KubeVirtAcceleratorAccounting: acceleratorAccountingSupported(),
+			UserClusterTokenWebhook:       ctrlCtx.runOptions.featureGates.Enabled(features.UserClusterTokenWebhook),
 		},
 		ctrlCtx.versions,
 	)
@@ -460,6 +463,20 @@ func createClusterStuckController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
 		ctrlCtx.log,
+	)
+}
+
+func createUserClusterTokenController(ctrlCtx *controllerContext) error {
+	if !ctrlCtx.runOptions.featureGates.Enabled(features.UserClusterTokenWebhook) {
+		return nil
+	}
+
+	return userclustertokencontroller.Add(
+		ctrlCtx.ctx,
+		ctrlCtx.mgr,
+		ctrlCtx.log,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.runOptions.workerName,
 	)
 }
 

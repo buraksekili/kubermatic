@@ -79,6 +79,10 @@ declare -A locationMap=(
   ["userprojectbindings.kubermatic.k8c.io"]="master,seed"
   ["usersshkeys.kubermatic.k8c.io"]="master,seed"
   ["users.kubermatic.k8c.io"]="master,seed"
+  ["userclustertokens.kubermatic.k8c.io"]="seed"
+  ["userclusterattributes.kubermatic.k8c.io"]="seed"
+  ["userclustertokenissuances.kubermatic.k8c.io"]="master"
+  ["userclustertokenrevocations.kubermatic.k8c.io"]="master"
   ["clusterbackupstoragelocations.kubermatic.k8c.io"]="master,seed"
 
   ["verticalpodautoscalers.autoscaling.k8s.io"]="seed"

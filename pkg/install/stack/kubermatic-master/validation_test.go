@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	"k8c.io/kubermatic/sdk/v2/semver"
@@ -701,5 +702,80 @@ func Test_isPublicIp(t *testing.T) {
 		if got := isPublicIP(ip); got != want {
 			t.Errorf("isPublicIp(%s) = %v , want: %v", ip, got, want)
 		}
+	}
+}
+
+func TestValidateHelmValuesWarnsOnSharedLoginClient(t *testing.T) {
+	const values = `
+kubermaticOperator:
+  imagePullSecret: "{}"
+dex:
+  ingress:
+    hosts:
+      - host: example.com
+  config:
+    enablePasswordDB: true
+    staticPasswords:
+      - email: admin@example.com
+    staticClients:
+      - id: kubermaticIssuer
+      - id: kubermatic
+`
+
+	tests := []struct {
+		name          string
+		auth          kubermaticv1.KubermaticAuthConfiguration
+		expectWarning bool
+	}{
+		{
+			name:          "secret set with default client IDs",
+			auth:          kubermaticv1.KubermaticAuthConfiguration{ClientSecret: "s3cr3t"},
+			expectWarning: true,
+		},
+		{
+			name: "secret set with distinct client IDs",
+			auth: kubermaticv1.KubermaticAuthConfiguration{
+				ClientID:       "kubermatic",
+				ClientSecret:   "s3cr3t",
+				IssuerClientID: "kubermaticIssuer",
+			},
+		},
+		{
+			name: "no secret",
+			auth: kubermaticv1.KubermaticAuthConfiguration{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &kubermaticv1.KubermaticConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Namespace: KubermaticOperatorNamespace},
+				Spec: kubermaticv1.KubermaticConfigurationSpec{
+					Ingress: kubermaticv1.KubermaticIngressConfiguration{Domain: "example.com"},
+					Auth:    tt.auth,
+				},
+			}
+
+			doc, err := yamled.Load(strings.NewReader(values))
+			if err != nil {
+				t.Fatalf("failed to load values: %v", err)
+			}
+
+			logger, hook := logrustest.NewNullLogger()
+			if failures := validateHelmValues(cfg, doc, logger); len(failures) > 0 {
+				t.Fatalf("unexpected failures: %v", failures)
+			}
+
+			warned := false
+			for _, entry := range hook.AllEntries() {
+				if strings.Contains(entry.Message, "spec.auth.clientSecret") {
+					warned = true
+				}
+			}
+
+			if warned != tt.expectWarning {
+				t.Fatalf("expected warning = %v, got %v (entries: %v)", tt.expectWarning, warned, hook.AllEntries())
+			}
+		})
 	}
 }

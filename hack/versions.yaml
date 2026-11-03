@@ -333,6 +333,13 @@ products:
     occurrences:
       - helmChart: { directory: charts/nginx-ingress-controller }
 
+  - name: "KKP Token Webhook"
+    source: https://github.com/kubermatic/kubermatic
+    occurrences:
+      - goConstant:
+          package: k8c.io/kubermatic/v2/pkg/resources/token-webhook
+          constant: ImageTag
+
   - name: "Dex"
     source: https://github.com/dexidp/dex
     occurrences:

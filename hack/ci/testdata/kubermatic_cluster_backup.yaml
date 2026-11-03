@@ -32,3 +32,6 @@ spec:
     # headless installations skip the Gateway API CRDs that this controller needs
     HTTPRouteGatewaySync: false
     EtcdLauncher: true
+    # lets the cluster-backup e2e verify that the per-cluster kubeconfig token
+    # CRDs stay out of user clusters and their Velero backups
+    UserClusterTokenWebhook: true

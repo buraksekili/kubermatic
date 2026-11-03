@@ -145,6 +145,7 @@ func Add(
 	}
 	r.Client = mgr.GetClient()
 	r.seedClient = seedMgr.GetClient()
+	r.apiReader = mgr.GetAPIReader()
 	r.cache = mgr.GetCache()
 
 	bldr := builder.ControllerManagedBy(mgr).Named(controllerName)
@@ -241,6 +242,7 @@ func Add(
 type reconciler struct {
 	ctrlruntimeclient.Client
 	seedClient                ctrlruntimeclient.Client
+	apiReader                 ctrlruntimeclient.Reader
 	version                   string
 	clusterSemVer             *semverlib.Version
 	cache                     cache.Cache

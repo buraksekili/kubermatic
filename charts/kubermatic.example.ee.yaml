@@ -82,6 +82,13 @@ spec:
     # endpoints ("enableOIDCKubeconfig: true" in KubermaticSetting).
     issuerClientSecret: <dex-kubermatic-issuer-oauth-secret-here>
 
+    # Optional: secret of the "clientID" client. When set, the dashboard login
+    # uses this confidential client instead of the issuer client, so tokens
+    # issued for user clusters cannot log in to the KKP API. Requires a matching
+    # Dex client and a clientID that differs from issuerClientID, for example
+    # "clientID: kubermatic".
+    # clientSecret: <dex-kubermatic-oauth-secret-here>
+
     # these need to be randomly generated. Those can be generated on the
     # shell using:
     # cat /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c32

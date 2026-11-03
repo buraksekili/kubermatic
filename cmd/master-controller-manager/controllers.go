@@ -42,6 +42,7 @@ import (
 	seedstatuscontroller "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/seed-status-controller"
 	seedsync "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/seed-sync"
 	serviceaccount "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/serviceaccount-projectbinding-controller"
+	userclustertokensynchronizer "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/user-cluster-token-synchronizer"
 	userprojectbinding "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/user-project-binding"
 	userprojectbindingsynchronizer "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/user-project-binding-synchronizer"
 	usersynchronizer "k8c.io/kubermatic/v2/pkg/controller/master-controller-manager/user-synchronizer"
@@ -84,6 +85,10 @@ func createAllControllers(ctrlCtx *controllerContext) error {
 		resourceQuotaControllerFactoryCreator(ctrlCtx),
 		policyTemplateSynchronizerFactoryCreator(ctrlCtx),
 		encryptionSecretSynchronizerFactoryCreator(ctrlCtx),
+	}
+
+	if ctrlCtx.featureGates.Enabled(features.UserClusterTokenWebhook) {
+		controllerFactories = append(controllerFactories, userClusterTokenSynchronizerFactoryCreator(ctrlCtx))
 	}
 
 	// Create the user-ssh-key-synchronizer controller even DisableUserSSHKey feature is set
@@ -235,6 +240,18 @@ func clusterTemplateSynchronizerFactoryCreator(ctrlCtx *controllerContext) seedc
 			ctrlCtx.seedsGetter,
 			seedManagerMap,
 			ctrlCtx.log,
+		)
+	}
+}
+
+func userClusterTokenSynchronizerFactoryCreator(ctrlCtx *controllerContext) seedcontrollerlifecycle.ControllerFactory {
+	return func(ctx context.Context, masterMgr manager.Manager, seedManagerMap map[string]manager.Manager) (string, error) {
+		return userclustertokensynchronizer.ControllerName, userclustertokensynchronizer.Add(
+			ctx,
+			masterMgr,
+			seedManagerMap,
+			ctrlCtx.log,
+			ctrlCtx.workerCount,
 		)
 	}
 }

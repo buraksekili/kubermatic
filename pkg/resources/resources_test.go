@@ -692,3 +692,35 @@ func TestGetNodePortsAllowedIPRanges(t *testing.T) {
 		})
 	}
 }
+
+func TestGetHTTPProxyEnvVarsFromSeed(t *testing.T) {
+	seed := &kubermaticv1.Seed{
+		Spec: kubermaticv1.SeedSpec{
+			ProxySettings: &kubermaticv1.ProxySettings{
+				HTTPProxy: kubermaticv1.NewProxyValue("http://proxy.example.com:3128"),
+				NoProxy:   kubermaticv1.NewProxyValue(".example.com"),
+			},
+		},
+	}
+
+	vars := GetHTTPProxyEnvVarsFromSeed(seed, "apiserver.cluster-abc123.svc.cluster.local.")
+	if len(vars) != 6 {
+		t.Fatalf("got %d env vars, want 6: %v", len(vars), vars)
+	}
+
+	wantNoProxy := "apiserver.cluster-abc123.svc.cluster.local.,.example.com"
+	if vars[4].Value != wantNoProxy || vars[4].Name != "NO_PROXY" {
+		t.Errorf("NO_PROXY = %q (%q), want %q", vars[4].Value, vars[4].Name, wantNoProxy)
+	}
+
+	vars = GetHTTPProxyEnvVarsFromSeed(seed, "apiserver.cluster-abc123.svc.cluster.local.", "kkp-token-webhook.cluster-abc123.svc.cluster.local")
+	wantNoProxy = "apiserver.cluster-abc123.svc.cluster.local.,kkp-token-webhook.cluster-abc123.svc.cluster.local,.example.com"
+	if vars[4].Value != wantNoProxy {
+		t.Errorf("NO_PROXY with extras = %q, want %q", vars[4].Value, wantNoProxy)
+	}
+
+	// no proxy configured on the seed: no env vars, extras make no difference
+	if vars := GetHTTPProxyEnvVarsFromSeed(&kubermaticv1.Seed{}, "apiserver.cluster-abc123.svc.cluster.local.", "extra"); len(vars) != 0 {
+		t.Errorf("got %d env vars for a seed without proxy settings, want 0", len(vars))
+	}
+}

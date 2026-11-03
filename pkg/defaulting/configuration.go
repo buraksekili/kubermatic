@@ -33,6 +33,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
 
@@ -65,6 +66,13 @@ const (
 	DefaultUserClusterScrapeAnnotationPrefix      = "monitoring.kubermatic.io"
 	DefaultMaximumParallelReconciles              = 10
 	DefaultS3Endpoint                             = "s3.amazonaws.com"
+
+	// Defaults for the per-cluster kubeconfig tokens (UserClusterTokenWebhook feature gate).
+	DefaultUserClusterTokenLifetime                   = 24 * time.Hour
+	DefaultUserClusterTokenMaxLifetime                = 7 * 24 * time.Hour
+	DefaultUserClusterTokenIdleTimeout                = 24 * time.Hour
+	DefaultUserClusterTokenWebhookCacheTTL            = 60 * time.Second
+	DefaultUserClusterTokenMaxActivePerUserPerCluster = int32(10)
 
 	// DefaultCloudProviderReconciliationInterval is the time in between deep cloud provider reconciliations
 	// in case the user did not configure a special interval for the given datacenter.
@@ -625,7 +633,34 @@ func DefaultConfiguration(config *kubermaticv1.KubermaticConfiguration, logger *
 		return configCopy, err
 	}
 
+	defaultUserClusterTokens(&configCopy.Spec.UserClusterTokens, logger)
+
 	return configCopy, nil
+}
+
+func defaultUserClusterTokens(cfg *kubermaticv1.KubermaticUserClusterTokensConfiguration, logger *zap.SugaredLogger) {
+	durations := []struct {
+		field string
+		value *metav1.Duration
+		def   time.Duration
+	}{
+		{field: "userClusterTokens.defaultLifetime", value: &cfg.DefaultLifetime, def: DefaultUserClusterTokenLifetime},
+		{field: "userClusterTokens.maxLifetime", value: &cfg.MaxLifetime, def: DefaultUserClusterTokenMaxLifetime},
+		{field: "userClusterTokens.idleTimeout", value: &cfg.IdleTimeout, def: DefaultUserClusterTokenIdleTimeout},
+		{field: "userClusterTokens.webhookCacheTTL", value: &cfg.WebhookCacheTTL, def: DefaultUserClusterTokenWebhookCacheTTL},
+	}
+
+	for _, d := range durations {
+		if d.value.Duration == 0 {
+			d.value.Duration = d.def
+			logger.Debugw("Defaulting field", "field", d.field, "value", d.def)
+		}
+	}
+
+	if cfg.MaxActivePerUserPerCluster == 0 {
+		cfg.MaxActivePerUserPerCluster = DefaultUserClusterTokenMaxActivePerUserPerCluster
+		logger.Debugw("Defaulting field", "field", "userClusterTokens.maxActivePerUserPerCluster", "value", cfg.MaxActivePerUserPerCluster)
+	}
 }
 
 func defaultDockerRepo(repo *string, defaultRepo string, key string, logger *zap.SugaredLogger) error {

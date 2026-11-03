@@ -31,6 +31,7 @@ import (
 	"k8c.io/kubermatic/v2/pkg/resources/etcd/etcdrunning"
 	"k8c.io/kubermatic/v2/pkg/resources/konnectivity"
 	"k8c.io/kubermatic/v2/pkg/resources/registry"
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/kubermatic/v2/pkg/resources/vpnsidecar"
 	"k8c.io/reconciler/pkg/reconciling"
 
@@ -95,6 +96,14 @@ func DeploymentReconciler(data *resources.TemplateData) reconciling.NamedDeploym
 
 			volumes := getVolumes(data, enableEncryptionConfiguration, auditLogEnabled, auditWebhookBackendEnabled)
 			volumeMounts := getVolumeMounts(data, enableEncryptionConfiguration, auditWebhookBackendEnabled)
+
+			// the token webhook is not part of the kube-apiserver pod: only its
+			// configuration file and the flags are added here
+			tokenWebhookEnabled := data.UserClusterTokenWebhookEnabled()
+			if tokenWebhookEnabled {
+				volumes = append(volumes, tokenwebhook.APIServerVolume())
+				volumeMounts = append(volumeMounts, tokenwebhook.APIServerVolumeMount())
+			}
 
 			version := data.Cluster().Status.Versions.Apiserver.Semver()
 			address := data.Cluster().Status.Address
@@ -161,6 +170,10 @@ func DeploymentReconciler(data *resources.TemplateData) reconciling.NamedDeploym
 
 			if auditWebhookBackendEnabled && data.Cluster().Spec.AuditLogging.WebhookBackend.AuditWebhookInitialBackoff != "" {
 				flags = append(flags, "--audit-webhook-initial-backoff", data.Cluster().Spec.AuditLogging.WebhookBackend.AuditWebhookInitialBackoff)
+			}
+
+			if tokenWebhookEnabled {
+				flags = append(flags, tokenwebhook.APIServerFlags(data.KubermaticConfiguration())...)
 			}
 
 			envVars, err := GetEnvVars(data)
@@ -914,6 +927,7 @@ func getVolumes(data *resources.TemplateData, isEncryptionEnabled, isAuditEnable
 type kubeAPIServerEnvData interface {
 	Cluster() *kubermaticv1.Cluster
 	Seed() *kubermaticv1.Seed
+	UserClusterTokenWebhookEnabled() bool
 }
 
 func GetEnvVars(data kubeAPIServerEnvData) ([]corev1.EnvVar, error) {
@@ -945,7 +959,13 @@ func GetEnvVars(data kubeAPIServerEnvData) ([]corev1.EnvVar, error) {
 		vars = append(vars, corev1.EnvVar{Name: "AWS_ASSUME_ROLE_EXTERNAL_ID", Value: cluster.Spec.Cloud.AWS.AssumeRoleExternalID})
 	}
 
-	return append(vars, resources.GetHTTPProxyEnvVarsFromSeed(data.Seed(), data.Cluster().Status.Address.InternalName)...), nil
+	var noProxyExtras []string
+	if data.UserClusterTokenWebhookEnabled() {
+		// kube-apiserver calls the token webhook on this name; it must bypass a seed proxy
+		noProxyExtras = tokenwebhook.NoProxyEntries(cluster.Status.NamespaceName)
+	}
+
+	return append(vars, resources.GetHTTPProxyEnvVarsFromSeed(data.Seed(), data.Cluster().Status.Address.InternalName, noProxyExtras...)...), nil
 }
 
 func getAuthorizationModesString(authorizationConfig *kubermaticv1.AuthorizationConfig) string {

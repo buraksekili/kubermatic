@@ -390,6 +390,18 @@ func WebhookServingCertSecretReconciler(
 	return servingcerthelper.ServingCertSecretReconciler(caGetter, WebhookServingCertSecretName, webhookCommonName, altNames, nil, triple.LegacyKeyConfigGetter)
 }
 
+// kkpNamespaceSelector matches only the KKP namespace. It uses the
+// kubernetes.io/metadata.name label because the apiserver sets it on every
+// namespace and nobody can change it, so the webhook runs on fresh and
+// upgraded installs alike without labeling the namespace first.
+func kkpNamespaceSelector(cfg *kubermaticv1.KubermaticConfiguration) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			corev1.LabelMetadataName: cfg.Namespace,
+		},
+	}
+}
+
 func SeedAdmissionWebhookName(cfg *kubermaticv1.KubermaticConfiguration) string {
 	return fmt.Sprintf("kubermatic-seeds-%s", cfg.Namespace)
 }
@@ -424,12 +436,8 @@ func SeedAdmissionWebhookReconciler(ctx context.Context, cfg *kubermaticv1.Kuber
 							Port:      ptr.To[int32](443),
 						},
 					},
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							NameLabel: cfg.Namespace,
-						},
-					},
-					ObjectSelector: &metav1.LabelSelector{},
+					NamespaceSelector: kkpNamespaceSelector(cfg),
+					ObjectSelector:    &metav1.LabelSelector{},
 					Rules: []admissionregistrationv1.RuleWithOperations{
 						{
 							Rule: admissionregistrationv1.Rule{
@@ -485,12 +493,8 @@ func KubermaticConfigurationAdmissionWebhookReconciler(ctx context.Context, cfg 
 							Port:      ptr.To[int32](443),
 						},
 					},
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							NameLabel: cfg.Namespace,
-						},
-					},
-					ObjectSelector: &metav1.LabelSelector{},
+					NamespaceSelector: kkpNamespaceSelector(cfg),
+					ObjectSelector:    &metav1.LabelSelector{},
 					Rules: []admissionregistrationv1.RuleWithOperations{
 						{
 							Rule: admissionregistrationv1.Rule{

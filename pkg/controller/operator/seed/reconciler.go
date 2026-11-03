@@ -611,6 +611,10 @@ func (r *Reconciler) reconcileCiliumNetworkPolicies(ctx context.Context, cfg *ku
 		networkpolicy.SeedApiserverAllowReconciler(),
 	}
 
+	if cfg.Spec.FeatureGates[features.UserClusterTokenWebhook] {
+		creators = append(creators, networkpolicy.TokenWebhookSeedApiserverAllowReconciler())
+	}
+
 	if err := reconciling.ReconcileUnstructureds(ctx, creators, "", client); err != nil {
 		return fmt.Errorf("failed to reconcile CiliumClusterwideNetworkPolicies: %w", err)
 	}

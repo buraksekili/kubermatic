@@ -27,6 +27,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -1487,7 +1488,7 @@ func GetAbsoluteServiceDNSName(service, namespace string) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local.", service, namespace)
 }
 
-func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL string) []corev1.EnvVar {
+func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL string, noProxyExtras ...string) []corev1.EnvVar {
 	if seed.Spec.ProxySettings.Empty() {
 		return nil
 	}
@@ -1515,10 +1516,13 @@ func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL 
 		}
 	}
 
-	noProxyValue := inClusterAPIServerURL
+	noProxy := make([]string, 0, 2+len(noProxyExtras))
+	noProxy = append(noProxy, inClusterAPIServerURL)
+	noProxy = append(noProxy, noProxyExtras...)
 	if !seed.Spec.ProxySettings.NoProxy.Empty() {
-		noProxyValue += "," + seed.Spec.ProxySettings.NoProxy.String()
+		noProxy = append(noProxy, seed.Spec.ProxySettings.NoProxy.String())
 	}
+	noProxyValue := strings.Join(noProxy, ",")
 	envVars = append(envVars,
 		corev1.EnvVar{Name: "NO_PROXY", Value: noProxyValue},
 		corev1.EnvVar{Name: "no_proxy", Value: noProxyValue},

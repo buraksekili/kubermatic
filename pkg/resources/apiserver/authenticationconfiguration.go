@@ -38,7 +38,15 @@ type authenticationConfigurationReconcilerData interface {
 	OIDCIssuerClientID() string
 	IsAuthenticationConfigurationEnabled() bool
 	AuthenticationConfigurationYAML() []byte
+	UserClusterTokenWebhookEnabled() bool
 }
+
+// TokenWebhookOnlyAnnotation opts a single cluster out of the KKP-generated OIDC
+// entries when the UserClusterTokenWebhook feature gate is on: the per-cluster token
+// webhook replaces them, which closes the shared Dex/OIDC audience for that cluster.
+// Removing the annotation brings the entries back on the next reconcile.
+// Productization: this should become a real field on the Cluster spec instead of an annotation.
+const TokenWebhookOnlyAnnotation = "kubermatic.k8c.io/token-webhook-only"
 
 func AuthenticationConfigurationReconciler(data authenticationConfigurationReconcilerData, caBundle string) reconciling.NamedSecretReconcilerFactory {
 	cluster := data.Cluster()
@@ -80,6 +88,10 @@ func AuthenticationConfigurationReconciler(data authenticationConfigurationRecon
 				secret.Data = map[string][]byte{resources.AuthenticationConfigurationKey: seedAuthConf}
 
 				return secret, nil
+			case tokenWebhookOnly(data, cluster):
+				// The per-cluster token webhook replaces both KKP-generated OIDC
+				// entries (spec.oidc and the default issuer); kube-apiserver accepts
+				// an empty jwt list and keeps the webhook token authenticator.
 			case oidcSettings.IssuerURL != "" && oidcSettings.ClientID != "":
 				// Old way of integrating OIDC: based on Cluster.spec.OIDC.
 				cfg.JWT = []apiserverv1.JWTAuthenticator{{
@@ -120,6 +132,8 @@ func AuthenticationConfigurationReconciler(data authenticationConfigurationRecon
 				if len(validationRules) > 0 {
 					cfg.JWT[0].ClaimValidationRules = validationRules
 				}
+
+				cfg.JWT[0].UserValidationRules = reservedNameUserValidationRules()
 			case data.IsAuthenticationConfigurationEnabled():
 				// Generate default AuthenticationConfiguration if KubernetesOIDCAuthentication feature is enabled but no issuer specified explicitly
 				usernameClaimPrefix := ""
@@ -140,6 +154,7 @@ func AuthenticationConfigurationReconciler(data authenticationConfigurationRecon
 							Prefix: &groupClaimPrefix,
 						},
 					},
+					UserValidationRules: reservedNameUserValidationRules(),
 				}}
 			}
 
@@ -152,5 +167,29 @@ func AuthenticationConfigurationReconciler(data authenticationConfigurationRecon
 
 			return secret, nil
 		}
+	}
+}
+
+// tokenWebhookOnly reports whether the KKP-generated OIDC entries must be omitted
+// for this cluster: the feature gate must be on and the cluster opted in through the
+// TokenWebhookOnlyAnnotation. Customer-supplied configuration is never affected.
+func tokenWebhookOnly(data authenticationConfigurationReconcilerData, cluster *kubermaticv1.Cluster) bool {
+	return data.UserClusterTokenWebhookEnabled() && cluster.Annotations[TokenWebhookOnlyAnnotation] == "true"
+}
+
+// reservedNameUserValidationRules keeps OIDC users out of the "system:" namespace that
+// Kubernetes reserves for its own users and groups. Without them, an identity provider
+// that lets users choose their email or groups could log a user in as, for example,
+// "system:kube-controller-manager" or put them in "system:masters".
+func reservedNameUserValidationRules() []apiserverv1.UserValidationRule {
+	return []apiserverv1.UserValidationRule{
+		{
+			Expression: "!user.username.startsWith('system:')",
+			Message:    "username must not start with the reserved prefix 'system:'",
+		},
+		{
+			Expression: "user.groups.all(g, !g.startsWith('system:'))",
+			Message:    "groups must not start with the reserved prefix 'system:'",
+		},
 	}
 }

@@ -597,12 +597,13 @@ func generateVerbsForNamedResource(groupName, resourceKind string) ([]string, er
 func generateVerbsForResource(groupName, resourceKind string) ([]string, error) {
 	// special case - only the owners and project managers of a project can manipulate members
 	//
+	isMemberBinding := resourceKind == kubermaticv1.UserProjectBindingKind || resourceKind == kubermaticv1.GroupProjectBindingKind
 	switch {
-	case strings.HasPrefix(groupName, OwnerGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind:
+	case strings.HasPrefix(groupName, OwnerGroupNamePrefix) && isMemberBinding:
 		return []string{"create"}, nil
-	case strings.HasPrefix(groupName, ProjectManagerGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind:
+	case strings.HasPrefix(groupName, ProjectManagerGroupNamePrefix) && isMemberBinding:
 		return []string{"create"}, nil
-	case resourceKind == kubermaticv1.UserProjectBindingKind:
+	case isMemberBinding:
 		return nil, nil
 	}
 

@@ -439,7 +439,7 @@ presubmits:
               memory: 6Gi
 
   - name: pre-kubermatic-cluster-backup-e2e
-    run_if_changed: "pkg/ee/cluster-backup/|pkg/defaulting/configuration.go"
+    run_if_changed: "pkg/ee/cluster-backup/|pkg/test/e2e/cluster-backup/|pkg/defaulting/configuration.go|hack/ci/run-cluster-backup-e2e-tests.sh|hack/ci/testdata/kubermatic_cluster_backup.yaml"
     decorate: true
     clone_uri: "ssh://git@github.com/kubermatic/kubermatic.git"
     labels:
@@ -475,6 +475,34 @@ presubmits:
               cpu: 2
             limits:
               memory: 6Gi
+              cpu: 2
+
+  - name: pre-kubermatic-velero-backup-e2e
+    run_if_changed: "charts/backup/velero/|pkg/test/e2e/velero-backup/|hack/ci/run-velero-backup-e2e-tests.sh|hack/ci/setup-kubermatic-backups-in-kind.sh"
+    decorate: true
+    clone_uri: "ssh://git@github.com/kubermatic/kubermatic.git"
+    labels:
+      preset-docker-mirror: "true"
+      preset-docker-pull: "true"
+      preset-goproxy: "true"
+      preset-kind-volume-mounts: "true"
+    spec:
+      containers:
+        - image: quay.io/kubermatic/build:go-1.27-node-24-kind-0.32-4
+          command:
+            - "./hack/ci/run-velero-backup-e2e-tests.sh"
+          env:
+            - name: KUBERMATIC_EDITION
+              value: ee
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              memory: 4Gi
+              cpu: 2
+            limits:
+              memory: 6Gi
+              cpu: 2
 
 #  - name: pre-kubermatic-kkp-argocd-gitops-e2e
 #    run_if_changed: "charts/gitops"

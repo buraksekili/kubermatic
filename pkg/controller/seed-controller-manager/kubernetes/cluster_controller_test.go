@@ -26,6 +26,7 @@ import (
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	"k8c.io/kubermatic/v2/pkg/resources"
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/kubermatic/v2/pkg/test/fake"
 
 	corev1 "k8s.io/api/core/v1"
@@ -351,4 +352,65 @@ func oidcIssuerLoadBalancerService() *corev1.Service {
 			},
 		},
 	}
+}
+
+func TestTokenWebhookSettingsChangedPredicate(t *testing.T) {
+	pred := tokenWebhookSettingsChangedPredicate()
+	base := &kubermaticv1.KubermaticConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "kubermatic", Namespace: "kubermatic"},
+		Spec: kubermaticv1.KubermaticConfigurationSpec{
+			UserClusterTokens: kubermaticv1.KubermaticUserClusterTokensConfiguration{
+				IdleTimeout:     metav1.Duration{Duration: 24 * time.Hour},
+				WebhookCacheTTL: metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+
+	idleTimeoutChanged := base.DeepCopy()
+	idleTimeoutChanged.Spec.UserClusterTokens.IdleTimeout = metav1.Duration{Duration: 10 * time.Minute}
+	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: idleTimeoutChanged}))
+
+	cacheTTLChanged := base.DeepCopy()
+	cacheTTLChanged.Spec.UserClusterTokens.WebhookCacheTTL = metav1.Duration{Duration: 90 * time.Second}
+	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: cacheTTLChanged}))
+
+	// unset values fall back to the defaults, so this renders the same flags
+	unset := base.DeepCopy()
+	unset.Spec.UserClusterTokens.IdleTimeout = metav1.Duration{}
+	unset.Spec.UserClusterTokens.WebhookCacheTTL = metav1.Duration{}
+	require.Equal(t, tokenwebhook.SettingsFrom(base), tokenwebhook.SettingsFrom(unset))
+	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: unset}))
+
+	unrelated := base.DeepCopy()
+	unrelated.Spec.UserClusterTokens.MaxLifetime = metav1.Duration{Duration: time.Hour}
+	unrelated.Status.KubermaticVersion = "v9.9.9"
+	unrelated.Annotations = map[string]string{"example.com/unrelated": "value"}
+	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: unrelated}))
+
+	require.False(t, pred.Create(event.CreateEvent{Object: base}))
+	require.False(t, pred.Delete(event.DeleteEvent{Object: base}))
+	require.False(t, pred.Generic(event.GenericEvent{Object: base}))
+}
+
+func TestEnqueueClustersForTokenWebhookSettings(t *testing.T) {
+	deletingCluster := awsCluster("deleting", "project-a")
+	deletionTimestamp := metav1.NewTime(time.Now())
+	deletingCluster.DeletionTimestamp = &deletionTimestamp
+	deletingCluster.Finalizers = []string{"test-finalizer"}
+	otherWorkerCluster := awsCluster("other-worker", "project-a")
+	otherWorkerCluster.Labels[kubermaticv1.WorkerNameLabelKey] = "other-worker"
+
+	r := &Reconciler{Client: fake.NewClientBuilder().WithObjects(
+		awsCluster("cluster-b", "project-b"),
+		kubeVirtCluster("cluster-a", "project-a"),
+		deletingCluster,
+		otherWorkerCluster,
+	).Build()}
+
+	got := r.enqueueClustersForTokenWebhookSettings(context.Background(), &kubermaticv1.KubermaticConfiguration{})
+
+	require.Equal(t, []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: "cluster-a"}},
+		{NamespacedName: types.NamespacedName{Name: "cluster-b"}},
+	}, got)
 }

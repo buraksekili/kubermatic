@@ -20,9 +20,13 @@ package clusterbackup
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +35,7 @@ import (
 	"go.uber.org/zap"
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
+	"k8c.io/kubermatic/v2/pkg/features"
 	"k8c.io/kubermatic/v2/pkg/log"
 	"k8c.io/kubermatic/v2/pkg/resources"
 	"k8c.io/kubermatic/v2/pkg/test/e2e/jig"
@@ -38,6 +43,7 @@ import (
 	"k8c.io/kubermatic/v2/pkg/util/wait"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -90,10 +96,23 @@ const (
 	userClusterBSLName = "default-cluster-backup-bsl"
 )
 
+// tokenResourceKinds are the per-cluster kubeconfig token kinds. They must
+// never exist inside a user cluster, so no user cluster backup can contain
+// them. Kept in sync with charts/backup/velero/values.yaml, which excludes
+// them from master/seed backups.
+var tokenResourceKinds = []string{
+	"userclustertokenissuances.kubermatic.k8c.io",
+	"userclustertokenrevocations.kubermatic.k8c.io",
+	"userclustertokens.kubermatic.k8c.io",
+	"userclusterattributes.kubermatic.k8c.io",
+}
+
 var (
 	credentials   jig.AWSCredentials
 	s3Credentials backupCredentials
 	logOptions    = utils.DefaultLogOptions
+
+	kubermaticConfigurationName = flag.String("kubermatic-configuration-name", "e2e", "Name of the KubermaticConfiguration in the kubermatic namespace")
 
 	dummyObject = &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -167,6 +186,25 @@ func TestClusterBackupAndRestore(t *testing.T) {
 		t.Fatalf("Failed to register velero/v1 scheme: %v", err)
 	}
 
+	if err := apiextensionsv1.AddToScheme(userClient.Scheme()); err != nil {
+		t.Fatalf("Failed to register apiextensions/v1 scheme: %v", err)
+	}
+
+	// The token assertions only make sense with the per-cluster kubeconfig
+	// tokens enabled; without the feature gate the kinds are equally absent,
+	// but there is nothing to prove.
+	config := &kubermaticv1.KubermaticConfiguration{}
+	configKey := types.NamespacedName{Name: *kubermaticConfigurationName, Namespace: resources.KubermaticNamespace}
+	if err := seedClient.Get(ctx, configKey, config); err != nil {
+		t.Fatalf("Failed to get KubermaticConfiguration: %v", err)
+	}
+	tokenWebhookEnabled := config.Spec.FeatureGates[features.UserClusterTokenWebhook]
+
+	if tokenWebhookEnabled {
+		logger.Info("UserClusterTokenWebhook feature gate is enabled, checking that no token CRDs exist in the user cluster...")
+		assertNoTokenCRDs(ctx, t, userClient)
+	}
+
 	if err := wait.PollImmediateLog(ctx, logger, 5*time.Second, 5*time.Minute, func(ctx context.Context) (transient error, terminal error) {
 		key := types.NamespacedName{Name: veleroDeployment, Namespace: veleroNamespace}
 		health, err := resources.HealthyDeployment(ctx, userClient, key, -1)
@@ -200,16 +238,28 @@ func TestClusterBackupAndRestore(t *testing.T) {
 	}
 
 	logger.Info("Creating backup through Velero...")
+	backupSpec := velerov1.BackupSpec{
+		StorageLocation:    userClusterBSLName,
+		IncludedNamespaces: []string{canary.Namespace},
+		IncludedResources:  []string{"configmaps"},
+	}
+	if tokenWebhookEnabled {
+		// with the token feature enabled, back up the whole cluster (like the
+		// master/seed hourly schedule does) to prove the token kinds cannot
+		// end up in a backup even at full scope
+		backupSpec = velerov1.BackupSpec{
+			StorageLocation:         userClusterBSLName,
+			IncludedNamespaces:      []string{"*"},
+			IncludeClusterResources: boolPtr(true),
+			SnapshotVolumes:         boolPtr(false),
+		}
+	}
 	clusterBackup := &velerov1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-backup",
 			Namespace: veleroNamespace,
 		},
-		Spec: velerov1.BackupSpec{
-			StorageLocation:    userClusterBSLName,
-			IncludedNamespaces: []string{canary.Namespace},
-			IncludedResources:  []string{"configmaps"},
-		},
+		Spec: backupSpec,
 	}
 
 	if err := userClient.Create(ctx, clusterBackup); err != nil {
@@ -233,6 +283,11 @@ func TestClusterBackupAndRestore(t *testing.T) {
 	}
 
 	logger.Info("Backup finished successfully.")
+
+	if tokenWebhookEnabled {
+		logger.Info("Checking that the backup contains no token resources...")
+		assertBackupContainsNoTokenKinds(ctx, t, logger, userClient, clusterBackup.Name)
+	}
 
 	// make some modifications
 
@@ -280,6 +335,11 @@ func TestClusterBackupAndRestore(t *testing.T) {
 
 	if err := userClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(canary), canary); err != nil {
 		t.Fatalf("Failed to get restored canary: %v", err)
+	}
+
+	if tokenWebhookEnabled {
+		logger.Info("Checking again that no token CRDs exist in the user cluster after the restore...")
+		assertNoTokenCRDs(ctx, t, userClient)
 	}
 
 	logger.Info("Disabling cluster backups...")
@@ -351,4 +411,92 @@ func setClusterBackupConfig(ctx context.Context, client ctrlruntimeclient.Client
 	}
 
 	return client.Patch(ctx, cluster, ctrlruntimeclient.MergeFrom(oldCluster))
+}
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+// assertNoTokenCRDs fails the test if any of the per-cluster kubeconfig token
+// CRDs is served by the user cluster. The token kinds only exist on the master
+// (issuances, revocations) and the seed (tokens, attributes); a user cluster
+// that served them would put token state into its backups.
+func assertNoTokenCRDs(ctx context.Context, t *testing.T, userClient ctrlruntimeclient.Client) {
+	t.Helper()
+
+	crds := &apiextensionsv1.CustomResourceDefinitionList{}
+	if err := userClient.List(ctx, crds); err != nil {
+		t.Fatalf("Failed to list CRDs in the user cluster: %v", err)
+	}
+
+	for _, crd := range crds.Items {
+		for _, kind := range tokenResourceKinds {
+			if crd.Name == kind {
+				t.Errorf("User cluster serves token CRD %q, which must not exist in a user cluster.", crd.Name)
+			}
+		}
+	}
+}
+
+// assertBackupContainsNoTokenKinds downloads the backup's resource list via a
+// Velero DownloadRequest and fails the test if any token kind appears in it.
+func assertBackupContainsNoTokenKinds(ctx context.Context, t *testing.T, logger *zap.SugaredLogger, userClient ctrlruntimeclient.Client, backupName string) {
+	t.Helper()
+
+	downloadRequest := &velerov1.DownloadRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "resource-list-" + backupName,
+			Namespace: veleroNamespace,
+		},
+		Spec: velerov1.DownloadRequestSpec{
+			Target: velerov1.DownloadTarget{
+				Kind: velerov1.DownloadTargetKindBackupResourceList,
+				Name: backupName,
+			},
+		},
+	}
+
+	if err := userClient.Create(ctx, downloadRequest); err != nil {
+		t.Fatalf("Failed to create DownloadRequest: %v", err)
+	}
+
+	if err := wait.PollImmediateLog(ctx, logger, 5*time.Second, 2*time.Minute, func(ctx context.Context) (transient error, terminal error) {
+		if err := userClient.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(downloadRequest), downloadRequest); err != nil {
+			return err, nil
+		}
+
+		if phase := downloadRequest.Status.Phase; phase != velerov1.DownloadRequestPhaseProcessed {
+			return fmt.Errorf("download request is still %v", phase), nil
+		}
+
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("DownloadRequest never finished: %v", err)
+	}
+
+	// the resource list maps "kind.group" to the backed-up item names; it is
+	// enough to check the keys for the token kinds
+	resourceList := map[string]json.RawMessage{}
+	response, err := http.Get(downloadRequest.Status.DownloadURL) //nolint:gosec
+	if err != nil {
+		t.Fatalf("Failed to download resource list: %v", err)
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("Failed to read resource list: %v", err)
+	}
+
+	if err := json.Unmarshal(body, &resourceList); err != nil {
+		t.Fatalf("Failed to parse resource list %q: %v", string(body), err)
+	}
+
+	for resource := range resourceList {
+		for _, kind := range tokenResourceKinds {
+			if strings.Contains(resource, kind) {
+				t.Errorf("Backup resource list contains token kind %q.", resource)
+			}
+		}
+	}
 }

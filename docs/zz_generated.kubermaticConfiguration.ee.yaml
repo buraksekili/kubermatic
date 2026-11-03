@@ -210,6 +210,11 @@ spec:
   # feature gate is set, which will disable the UI/API and its need for an OIDC provider entirely.
   auth:
     clientID: kubermaticIssuer
+    # ClientSecret is the secret of the OIDC client named by ClientID. When it
+    # is set, the KKP dashboard login uses this confidential client instead of
+    # the issuer client, so tokens issued for user clusters cannot log in to
+    # the KKP API. ClientID and IssuerClientID must then differ.
+    clientSecret: ""
     issuerClientID: kubermaticIssuer
     issuerClientSecret: ""
     issuerCookieKey: ""
@@ -733,6 +738,24 @@ spec:
       # instead of HTTPS.
       # This is intended for local or air-gapped setups where HTTPS is not available.
       plainHTTP: false
+  # UserClusterTokens configures the per-cluster kubeconfig tokens. Only used when the
+  # UserClusterTokenWebhook feature gate is enabled.
+  userClusterTokens:
+    # DefaultLifetime is the lifetime of a new token when the user does not ask for a
+    # shorter one. Defaults to 24h.
+    defaultLifetime: 24h0m0s
+    # IdleTimeout makes the webhook reject a token that was not used for this long.
+    # Defaults to 24h.
+    idleTimeout: 24h0m0s
+    # MaxActivePerUserPerCluster is how many unexpired tokens one user may hold for one
+    # cluster. Defaults to 10.
+    maxActivePerUserPerCluster: 10
+    # MaxLifetime is the longest lifetime a token may have. Defaults to 168h (7 days).
+    maxLifetime: 168h0m0s
+    # WebhookCacheTTL is how long kube-apiserver caches the webhook's answer for a token
+    # (--authentication-token-webhook-cache-ttl). It is the upper bound of the delay between
+    # a revocation and the token stopping to work. Defaults to 60s.
+    webhookCacheTTL: 1m0s
   # Util configures the shared util toolbox image.
   util:
     # DockerRepository is the repository containing the Kubermatic util image.

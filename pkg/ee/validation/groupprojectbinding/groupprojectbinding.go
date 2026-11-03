@@ -28,13 +28,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
+// roleRank orders the project roles a GroupProjectBinding can grant. projectmanagers manage
+// members but not clusters, so they rank between editors and owners: they may grant up to
+// projectmanagers, never owners.
+var roleRank = map[string]int{
+	"viewers":         1,
+	"editors":         2,
+	"projectmanagers": 3,
+	"owners":          4,
+}
+
 func ValidateCreate(ctx context.Context, binding *kubermaticv1.GroupProjectBinding, client ctrlruntimeclient.Client) error {
+	if err := validateRequesterRole(ctx, binding); err != nil {
+		return err
+	}
+
 	duplicate, err := hasDuplicateGroupProjectBinding(ctx, client, binding, binding.Name)
 	if err != nil {
 		return err
@@ -49,6 +66,12 @@ func ValidateCreate(ctx context.Context, binding *kubermaticv1.GroupProjectBindi
 func ValidateUpdate(ctx context.Context, oldGroupProjectBinding *kubermaticv1.GroupProjectBinding, newGroupProjectBinding *kubermaticv1.GroupProjectBinding, client ctrlruntimeclient.Client) error {
 	if oldGroupProjectBinding.Spec.ProjectID != newGroupProjectBinding.Spec.ProjectID {
 		return errors.New("attribute \"projectID\" cannot be updated for existing GroupProjectBinding resource")
+	}
+
+	if oldGroupProjectBinding.Spec.Role != newGroupProjectBinding.Spec.Role {
+		if err := validateRequesterRole(ctx, newGroupProjectBinding); err != nil {
+			return err
+		}
 	}
 
 	duplicate, err := hasDuplicateGroupProjectBinding(ctx, client, newGroupProjectBinding, newGroupProjectBinding.Name)
@@ -78,4 +101,55 @@ func hasDuplicateGroupProjectBinding(ctx context.Context, client ctrlruntimeclie
 	}
 
 	return false, nil
+}
+
+// validateRequesterRole rejects a binding that grants a higher role than the requester
+// holds in the project. The KKP API writes GroupProjectBindings for project members with
+// an impersonated client whose groups are "<role>-<projectID>", so those groups carry the
+// requester's project role. Requests without such a group do not come from a project
+// member acting through the KKP API: KKP admins (the KKP API uses its own ServiceAccount
+// for them), KKP controllers and master cluster admins. RBAC already decided that they
+// may create GroupProjectBindings, so they are not limited here.
+func validateRequesterRole(ctx context.Context, binding *kubermaticv1.GroupProjectBinding) error {
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot determine the requesting user: %w", err)
+	}
+
+	own, isMember := requesterRank(req.UserInfo, binding.Spec.ProjectID)
+	if !isMember {
+		return nil
+	}
+
+	// a role this check cannot rank could be anything, so project members may not grant it
+	requested, ok := roleRank[binding.Spec.Role]
+	if !ok {
+		return fmt.Errorf("unknown role %q", binding.Spec.Role)
+	}
+
+	if requested > own {
+		return fmt.Errorf("role %q is higher than the role of %q in project %q", binding.Spec.Role, req.UserInfo.Username, binding.Spec.ProjectID)
+	}
+
+	return nil
+}
+
+// requesterRank returns the highest project role rank found in the requester's groups,
+// and whether any project role group was found at all.
+func requesterRank(userInfo authenticationv1.UserInfo, projectID string) (int, bool) {
+	highest := 0
+	found := false
+
+	for _, group := range userInfo.Groups {
+		role, ok := strings.CutSuffix(group, "-"+projectID)
+		if !ok {
+			continue
+		}
+		if rank, ok := roleRank[role]; ok {
+			found = true
+			highest = max(highest, rank)
+		}
+	}
+
+	return highest, found
 }

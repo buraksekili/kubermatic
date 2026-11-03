@@ -57,6 +57,7 @@ import (
 	kkpreconciling "k8c.io/kubermatic/v2/pkg/resources/reconciling"
 	"k8c.io/kubermatic/v2/pkg/resources/reconciling/modifier"
 	"k8c.io/kubermatic/v2/pkg/resources/scheduler"
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/kubermatic/v2/pkg/resources/usercluster"
 	userclusterwebhook "k8c.io/kubermatic/v2/pkg/resources/usercluster-webhook"
 	"k8c.io/kubermatic/v2/pkg/version/kubermatic"
@@ -149,7 +150,7 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 			return nil, err
 		}
 	}
-	if err := r.ensureRBAC(ctx, cluster, namespace); err != nil {
+	if err := r.ensureRBAC(ctx, cluster, namespace, data); err != nil {
 		return nil, err
 	}
 
@@ -231,6 +232,14 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 	// Ensure that kubernetes-dashboard is completely removed, when disabled
 	if !cluster.Spec.IsKubernetesDashboardEnabled() {
 		if err := r.ensureKubernetesDashboardResourcesAreRemoved(ctx, data); err != nil {
+			return nil, err
+		}
+	}
+
+	// Ensure that the token webhook is completely removed when the feature gate is off
+	// again, so a rollback leaves nothing behind (M-05).
+	if !data.UserClusterTokenWebhookEnabled() {
+		if err := r.ensureTokenWebhookResourcesAreRemoved(ctx, data); err != nil {
 			return nil, err
 		}
 	}
@@ -330,6 +339,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		WithClusterBackupStorageLocation(cbsl).
 		WithVersions(r.versions).
 		WithDRA(r.features.DynamicResourceAllocation).
+		WithUserClusterTokenWebhook(r.features.UserClusterTokenWebhook).
 		WithKubeVirtAcceleratorQuota(kubeVirtAcceleratorQuotaEnabled).
 		Build(), nil
 }
@@ -491,6 +501,10 @@ func GetServiceReconcilers(data *resources.TemplateData) []reconciling.NamedServ
 		creators = append(creators, nodeportproxy.FrontLoadBalancerServiceReconciler(data))
 	}
 
+	if data.UserClusterTokenWebhookEnabled() {
+		creators = append(creators, tokenwebhook.ServiceReconciler())
+	}
+
 	return creators
 }
 
@@ -547,6 +561,10 @@ func GetDeploymentReconcilers(data *resources.TemplateData, versions kubermatic.
 			nodeportproxy.DeploymentEnvoyReconciler(data, versions),
 			nodeportproxy.DeploymentLBUpdaterReconciler(data),
 		)
+	}
+
+	if data.UserClusterTokenWebhookEnabled() {
+		deployments = append(deployments, tokenwebhook.DeploymentReconciler(data))
 	}
 
 	return deployments
@@ -691,6 +709,14 @@ func (r *Reconciler) GetSecretReconcilers(ctx context.Context, data *resources.T
 		creators = append(creators, resources.ServiceAccountSecretReconciler(data))
 	}
 
+	if data.UserClusterTokenWebhookEnabled() {
+		creators = append(creators,
+			tokenwebhook.ServingCertificateReconciler(data),
+			tokenwebhook.ClientCAReconciler(data),
+			tokenwebhook.KubeconfigReconciler(data),
+		)
+	}
+
 	return creators
 }
 
@@ -704,7 +730,7 @@ func (r *Reconciler) ensureSecrets(ctx context.Context, c *kubermaticv1.Cluster,
 	return nil
 }
 
-func (r *Reconciler) ensureServiceAccounts(ctx context.Context, c *kubermaticv1.Cluster) error {
+func (r *Reconciler) ensureServiceAccounts(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	namedServiceAccountReconcilerFactories := []reconciling.NamedServiceAccountReconcilerFactory{
 		etcd.ServiceAccountReconciler,
 		usercluster.ServiceAccountReconciler,
@@ -725,6 +751,10 @@ func (r *Reconciler) ensureServiceAccounts(ctx context.Context, c *kubermaticv1.
 		namedServiceAccountReconcilerFactories = append(namedServiceAccountReconcilerFactories, nodeportproxy.ServiceAccountReconciler)
 	}
 
+	if data.UserClusterTokenWebhookEnabled() {
+		namedServiceAccountReconcilerFactories = append(namedServiceAccountReconcilerFactories, tokenwebhook.ServiceAccountReconciler)
+	}
+
 	if err := reconciling.ReconcileServiceAccounts(ctx, namedServiceAccountReconcilerFactories, c.Status.NamespaceName, r); err != nil {
 		return fmt.Errorf("failed to ensure ServiceAccounts: %w", err)
 	}
@@ -740,13 +770,17 @@ func (r *Reconciler) ensureServiceAccounts(ctx context.Context, c *kubermaticv1.
 	return nil
 }
 
-func (r *Reconciler) ensureRoles(ctx context.Context, c *kubermaticv1.Cluster) error {
+func (r *Reconciler) ensureRoles(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	namedRoleReconcilerFactories := []reconciling.NamedRoleReconcilerFactory{
 		usercluster.RoleReconciler,
 	}
 
 	if c.Spec.ExposeStrategy == kubermaticv1.ExposeStrategyLoadBalancer {
 		namedRoleReconcilerFactories = append(namedRoleReconcilerFactories, nodeportproxy.RoleReconciler)
+	}
+
+	if data.UserClusterTokenWebhookEnabled() {
+		namedRoleReconcilerFactories = append(namedRoleReconcilerFactories, tokenwebhook.RoleReconciler)
 	}
 
 	if err := reconciling.ReconcileRoles(ctx, namedRoleReconcilerFactories, c.Status.NamespaceName, r); err != nil {
@@ -756,7 +790,7 @@ func (r *Reconciler) ensureRoles(ctx context.Context, c *kubermaticv1.Cluster) e
 	return nil
 }
 
-func (r *Reconciler) ensureRoleBindings(ctx context.Context, c *kubermaticv1.Cluster) error {
+func (r *Reconciler) ensureRoleBindings(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	namedRoleBindingReconcilerFactories := []reconciling.NamedRoleBindingReconcilerFactory{
 		usercluster.RoleBindingReconciler,
 	}
@@ -766,6 +800,10 @@ func (r *Reconciler) ensureRoleBindings(ctx context.Context, c *kubermaticv1.Clu
 
 	if c.Spec.ExposeStrategy == kubermaticv1.ExposeStrategyLoadBalancer {
 		namedRoleBindingReconcilerFactories = append(namedRoleBindingReconcilerFactories, nodeportproxy.RoleBindingReconciler)
+	}
+
+	if data.UserClusterTokenWebhookEnabled() {
+		namedRoleBindingReconcilerFactories = append(namedRoleBindingReconcilerFactories, tokenwebhook.RoleBindingReconciler(c.Status.NamespaceName))
 	}
 
 	if err := reconciling.ReconcileRoleBindings(ctx, namedRoleBindingReconcilerFactories, c.Status.NamespaceName, r); err != nil {
@@ -804,6 +842,12 @@ func (r *Reconciler) ensureClusterRoleBindings(ctx context.Context, namespace *c
 }
 
 func (r *Reconciler) ensureNetworkPolicies(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData, cfg *kubermaticv1.KubermaticConfiguration) error {
+	tokenWebhookEnabled := data.UserClusterTokenWebhookEnabled()
+
+	// one shared limited context for required hostname resolutions
+	resolverCtx, cancel := context.WithTimeout(ctx, networkPolicyHostnameResolutionTimeout)
+	defer cancel()
+
 	if c.Spec.Features[kubermaticv1.ApiserverNetworkPolicy] {
 		namedNetworkPolicyReconcilerFactories := []reconciling.NamedNetworkPolicyReconcilerFactory{
 			apiserver.DenyAllPolicyReconciler(),
@@ -815,9 +859,9 @@ func (r *Reconciler) ensureNetworkPolicies(ctx context.Context, c *kubermaticv1.
 			apiserver.KyvernoWebhookAllowReconciler(c),
 		}
 
-		// one shared limited context for required hostname resolutions
-		resolverCtx, cancel := context.WithTimeout(ctx, networkPolicyHostnameResolutionTimeout)
-		defer cancel()
+		if tokenWebhookEnabled {
+			namedNetworkPolicyReconcilerFactories = append(namedNetworkPolicyReconcilerFactories, apiserver.KKPTokenWebhookAllowReconciler(c))
+		}
 
 		if data.IsKonnectivityEnabled() {
 			namedNetworkPolicyReconcilerFactories = append(namedNetworkPolicyReconcilerFactories, apiserver.ApiserverInternalAllowReconciler())
@@ -863,6 +907,12 @@ func (r *Reconciler) ensureNetworkPolicies(ctx context.Context, c *kubermaticv1.
 
 		namedNetworkPolicyReconcilerFactories = append(namedNetworkPolicyReconcilerFactories, apiserver.SeedApiserverAllowReconciler(apiIPs))
 
+		if tokenWebhookEnabled {
+			// the webhook needs the same seed API endpoints for its informer and the
+			// lastUsedTime patches
+			namedNetworkPolicyReconcilerFactories = append(namedNetworkPolicyReconcilerFactories, tokenwebhook.EgressPolicyReconciler(apiIPs))
+		}
+
 		if len(oidcIPs) > 0 {
 			// Match optional LoadBalancer backend peers after required DNS lookups.
 			// This must not perform additional DNS resolution during Service matching.
@@ -879,6 +929,27 @@ func (r *Reconciler) ensureNetworkPolicies(ctx context.Context, c *kubermaticv1.
 
 		if err := reconciling.ReconcileNetworkPolicies(ctx, namedNetworkPolicyReconcilerFactories, c.Status.NamespaceName, r); err != nil {
 			return fmt.Errorf("failed to ensure Network Policies: %w", err)
+		}
+	}
+
+	if tokenWebhookEnabled {
+		webhookPolicies := []reconciling.NamedNetworkPolicyReconcilerFactory{
+			tokenwebhook.IngressPolicyReconciler(),
+		}
+
+		if !c.Spec.Features[kubermaticv1.ApiserverNetworkPolicy] {
+			// the webhook egress policy was not added above; fetch the seed API
+			// endpoints here so the webhook can still reach the seed apiserver
+			apiIPs, err := r.fetchKubernetesServiceIPList(ctx, resolverCtx)
+			if err != nil {
+				return fmt.Errorf("failed to fetch Kubernetes API service IP list: %w", err)
+			}
+
+			webhookPolicies = append(webhookPolicies, tokenwebhook.EgressPolicyReconciler(apiIPs))
+		}
+
+		if err := reconciling.ReconcileNetworkPolicies(ctx, webhookPolicies, c.Status.NamespaceName, r); err != nil {
+			return fmt.Errorf("failed to ensure token webhook Network Policies: %w", err)
 		}
 	}
 
@@ -1246,6 +1317,10 @@ func GetPodDisruptionBudgetReconcilers(data *resources.TemplateData) []reconcili
 		creators = append(creators, nodeportproxy.PodDisruptionBudgetReconciler())
 	}
 
+	if data.UserClusterTokenWebhookEnabled() {
+		creators = append(creators, tokenwebhook.PodDisruptionBudgetReconciler())
+	}
+
 	return creators
 }
 
@@ -1357,6 +1432,16 @@ func (r *Reconciler) ensureOldOPAIntegrationIsRemoved(ctx context.Context, data 
 	return nil
 }
 
+func (r *Reconciler) ensureTokenWebhookResourcesAreRemoved(ctx context.Context, data *resources.TemplateData) error {
+	for _, resource := range tokenwebhook.ResourcesForDeletion(data.Cluster().Status.NamespaceName) {
+		err := r.Delete(ctx, resource)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to ensure token webhook resources are removed/not present: %w", err)
+		}
+	}
+	return nil
+}
+
 func (r *Reconciler) ensureKubernetesDashboardResourcesAreRemoved(ctx context.Context, data *resources.TemplateData) error {
 	for _, resource := range kubernetesdashboard.ResourcesForDeletion(data.Cluster().Status.NamespaceName) {
 		err := r.Delete(ctx, resource)
@@ -1438,16 +1523,16 @@ func (r *Reconciler) ensureEncryptionConfigurationIsRemoved(ctx context.Context,
 	return nil
 }
 
-func (r *Reconciler) ensureRBAC(ctx context.Context, cluster *kubermaticv1.Cluster, namespace *corev1.Namespace) error {
-	if err := r.ensureServiceAccounts(ctx, cluster); err != nil {
+func (r *Reconciler) ensureRBAC(ctx context.Context, cluster *kubermaticv1.Cluster, namespace *corev1.Namespace, data *resources.TemplateData) error {
+	if err := r.ensureServiceAccounts(ctx, cluster, data); err != nil {
 		return err
 	}
 
-	if err := r.ensureRoles(ctx, cluster); err != nil {
+	if err := r.ensureRoles(ctx, cluster, data); err != nil {
 		return err
 	}
 
-	if err := r.ensureRoleBindings(ctx, cluster); err != nil {
+	if err := r.ensureRoleBindings(ctx, cluster, data); err != nil {
 		return err
 	}
 

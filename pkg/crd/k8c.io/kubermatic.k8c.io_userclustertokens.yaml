@@ -1,0 +1,211 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+    kubermatic.k8c.io/location: seed
+  name: userclustertokens.kubermatic.k8c.io
+spec:
+  group: kubermatic.k8c.io
+  names:
+    kind: UserClusterToken
+    listKind: UserClusterTokenList
+    plural: userclustertokens
+    singular: userclustertoken
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.userID
+          name: User
+          type: string
+        - jsonPath: .spec.label
+          name: Label
+          type: string
+        - jsonPath: .status.state
+          name: State
+          type: string
+        - jsonPath: .status.reason
+          name: Reason
+          type: string
+        - jsonPath: .spec.expirationTime
+          name: Expires
+          type: string
+        - jsonPath: .status.lastUsedTime
+          name: LastUsed
+          type: date
+      name: v1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            UserClusterToken is the seed copy of a UserClusterTokenIssuance. It lives in the
+            cluster-<id> namespace on the seed, where the token webhook of that cluster reads it.
+            Only the master synchronizer creates and deletes these objects; the seed token controller
+            writes the status.
+
+            The status holds only what belongs to this one token. Who the owner is (username, groups,
+            membership) is in the UserClusterAttribute named after spec.userID in the same namespace.
+
+            The object name is the token ID.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: |-
+                UserClusterTokenSpec describes one kubeconfig token for one user cluster. It never
+                contains the token secret, only its SHA-256 hash. The token ID is the object name.
+
+                All fields except label are immutable.
+              properties:
+                clusterID:
+                  description: ClusterID is the name of the KKP Cluster this token is valid for.
+                  maxLength: 63
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  type: string
+                  x-kubernetes-validations:
+                    - message: clusterID is immutable
+                      rule: self == oldSelf
+                clusterUID:
+                  description: |-
+                    ClusterUID is the UID of the KKP Cluster at issue time. A cluster that is deleted
+                    and created again with the same name has another UID, and old tokens stop working.
+                  maxLength: 128
+                  minLength: 1
+                  type: string
+                  x-kubernetes-validations:
+                    - message: clusterUID is immutable
+                      rule: self == oldSelf
+                expirationTime:
+                  description: |-
+                    ExpirationTime is when the token stops working. KKP sets it from the token
+                    lifetime settings at issue time.
+                  format: date-time
+                  type: string
+                  x-kubernetes-validations:
+                    - message: expirationTime is immutable
+                      rule: self == oldSelf
+                issuanceRequestID:
+                  description: |-
+                    IssuanceRequestID is the ID of the export request that created the token. It links
+                    the token to the issuance log entry of the KKP API.
+                  maxLength: 128
+                  type: string
+                  x-kubernetes-validations:
+                    - message: issuanceRequestID is immutable
+                      rule: self == oldSelf
+                issueTime:
+                  description: |-
+                    IssueTime is when KKP issued the token. UserClusterTokenRevocations compare
+                    against it.
+                  format: date-time
+                  type: string
+                  x-kubernetes-validations:
+                    - message: issueTime is immutable
+                      rule: self == oldSelf
+                label:
+                  description: Label is a free text name the user gives the token, for example "laptop".
+                  maxLength: 128
+                  type: string
+                seedName:
+                  description: |-
+                    SeedName is the name of the Seed that hosts the cluster. The master synchronizer
+                    copies the token to this seed only.
+                  maxLength: 253
+                  minLength: 1
+                  type: string
+                  x-kubernetes-validations:
+                    - message: seedName is immutable
+                      rule: self == oldSelf
+                tokenHash:
+                  description: |-
+                    TokenHash is the lowercase hex SHA-256 hash of the secret part of the token
+                    (the text after the colon).
+                  pattern: ^[a-f0-9]{64}$
+                  type: string
+                  x-kubernetes-validations:
+                    - message: tokenHash is immutable
+                      rule: self == oldSelf
+                userID:
+                  description: UserID is the name of the KKP User that owns this token.
+                  maxLength: 253
+                  minLength: 1
+                  type: string
+                  x-kubernetes-validations:
+                    - message: userID is immutable
+                      rule: self == oldSelf
+              required:
+                - clusterID
+                - clusterUID
+                - expirationTime
+                - issueTime
+                - seedName
+                - tokenHash
+                - userID
+              type: object
+            status:
+              description: |-
+                UserClusterTokenStatus is written by the seed token controller, except lastUsedTime,
+                which the token webhook writes.
+
+                The token webhook must not accept a token whose status.state is empty or whose
+                status.observedGeneration differs from metadata.generation; it answers HTTP 503 for it,
+                so kube-apiserver does not cache a rejection while the controller catches up.
+              properties:
+                lastEvaluationTime:
+                  description: LastEvaluationTime is when the controller last changed the status.
+                  format: date-time
+                  type: string
+                lastUsedTime:
+                  description: |-
+                    LastUsedTime is the last time the webhook accepted the token, written at most once
+                    every few minutes per token.
+                  format: date-time
+                  type: string
+                observedGeneration:
+                  description: ObservedGeneration is the metadata.generation the controller last evaluated.
+                  format: int64
+                  type: integer
+                reason:
+                  description: Reason says why the token is Disabled. Empty when Active.
+                  enum:
+                    - ClusterNotFound
+                    - ClusterUIDMismatch
+                    - ClusterDeleting
+                    - Expired
+                  type: string
+                state:
+                  description: |-
+                    State says whether the token itself is usable. The owner's UserClusterAttribute must
+                    be Active as well.
+                  enum:
+                    - Active
+                    - Disabled
+                  type: string
+              type: object
+          required:
+            - spec
+          type: object
+          x-kubernetes-validations:
+            - message: 'name must be the token ID: 8 to 32 lowercase letters or digits'
+              rule: self.metadata.name.matches('^[a-z0-9]{8,32}$')
+            - message: spec.expirationTime must be after spec.issueTime
+              rule: self.spec.expirationTime > self.spec.issueTime
+      served: true
+      storage: true
+      subresources:
+        status: {}

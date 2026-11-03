@@ -84,6 +84,11 @@ const (
 	// KubeVirtAcceleratorQuota enables accelerator quota accounting for KubeVirt Machines.
 	// This feature is alpha and disabled by default.
 	KubeVirtAcceleratorQuota = "KubeVirtAcceleratorQuota"
+
+	// UserClusterTokenWebhook enables per-cluster kubeconfig tokens: the UserClusterToken
+	// controllers, a token webhook per user cluster and the kube-apiserver webhook
+	// authentication flags. This feature is alpha and disabled by default.
+	UserClusterTokenWebhook = "UserClusterTokenWebhook"
 )
 
 // FeatureGate is map of key=value pairs that enables/disables various features.

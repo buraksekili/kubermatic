@@ -266,6 +266,10 @@ func validateKubermaticConfiguration(config *kubermaticv1.KubermaticConfiguratio
 		failures = append(failures, err)
 	}
 
+	for _, err := range configvalidation.ValidateUserClusterTokenLoginClient(&config.Spec) {
+		failures = append(failures, err)
+	}
+
 	// only validate auth-related keys if we are not setting up a headless system
 	if !config.Spec.FeatureGates[features.HeadlessInstallation] {
 		failures = validateRandomSecret(config, config.Spec.Auth.ServiceAccountKey, "spec.auth.serviceAccountKey", failures)
@@ -341,6 +345,11 @@ func validateHelmValues(config *kubermaticv1.KubermaticConfiguration, helmValues
 		common.DefaultMasterHTTPRouteGatewayValues(config, helmValues, logger)
 
 		clientID := defaultedConfig.Spec.Auth.ClientID
+
+		if defaultedConfig.Spec.Auth.ClientSecret != "" && clientID == defaultedConfig.Spec.Auth.IssuerClientID {
+			logger.Warnf("KubermaticConfiguration: spec.auth.clientSecret is set, but spec.auth.clientID and spec.auth.issuerClientID are both `%s`. Use a separate client for dashboard login, otherwise user cluster tokens can still log in to the KKP API.", clientID)
+		}
+
 		hasDexIssues := false
 		clients := []dexClient{}
 

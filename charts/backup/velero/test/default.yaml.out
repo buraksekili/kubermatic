@@ -273,6 +273,11 @@ metadata:
 spec:
   schedule: "0 * * * *"
   template:
+    excludedResources:
+    - userclustertokenissuances.kubermatic.k8c.io
+    - userclustertokenrevocations.kubermatic.k8c.io
+    - userclustertokens.kubermatic.k8c.io
+    - userclusterattributes.kubermatic.k8c.io
     includeClusterResources: true
     includedNamespaces:
     - '*'

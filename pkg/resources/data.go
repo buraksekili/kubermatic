@@ -107,6 +107,7 @@ type TemplateData struct {
 	isKonnectivityEnabled                 bool
 	dra                                   bool
 	kubeVirtAcceleratorQuota              bool
+	userClusterTokenWebhook               bool
 
 	tunnelingAgentIP string
 
@@ -331,6 +332,13 @@ func (td *TemplateDataBuilder) WithKubeVirtAcceleratorQuota(enabled bool) *Templ
 	return td
 }
 
+// WithUserClusterTokenWebhook enables the per-cluster token webhook and the
+// kube-apiserver webhook token authentication (UserClusterTokenWebhook feature gate).
+func (td *TemplateDataBuilder) WithUserClusterTokenWebhook(enabled bool) *TemplateDataBuilder {
+	td.data.userClusterTokenWebhook = enabled
+	return td
+}
+
 // GetViewerToken returns the viewer token.
 func (d *TemplateData) GetViewerToken() (string, error) {
 	viewerTokenSecret := &corev1.Secret{}
@@ -549,6 +557,11 @@ func (d *TemplateData) RewriteImage(image string) (string, error) {
 // GetRootCA returns the root CA of the cluster.
 func (d *TemplateData) GetRootCA() (*triple.KeyPair, error) {
 	return GetClusterRootCA(d.ctx, d.cluster.Status.NamespaceName, d.client)
+}
+
+// GetClusterSignerCA returns the CA stored in the given Secret in the cluster namespace.
+func (d *TemplateData) GetClusterSignerCA(secretName string) (*triple.KeyPair, error) {
+	return getSignerClusterCAFromLister(d.ctx, d.cluster.Status.NamespaceName, secretName, d.client)
 }
 
 // GetFrontProxyCA returns the root CA for the front proxy.
@@ -1129,6 +1142,11 @@ func (d *TemplateData) DRAEnabled() bool {
 // KubeVirtAcceleratorQuotaEnabled returns whether KubeVirt accelerator quota accounting is enabled.
 func (d *TemplateData) KubeVirtAcceleratorQuotaEnabled() bool {
 	return d.kubeVirtAcceleratorQuota
+}
+
+// UserClusterTokenWebhookEnabled returns whether the per-cluster token webhook is enabled.
+func (d *TemplateData) UserClusterTokenWebhookEnabled() bool {
+	return d.userClusterTokenWebhook
 }
 
 func expandVariables(input string, vars map[string]string) string {

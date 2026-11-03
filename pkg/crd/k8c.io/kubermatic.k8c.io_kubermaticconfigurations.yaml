@@ -1669,6 +1669,13 @@ spec:
                   properties:
                     clientID:
                       type: string
+                    clientSecret:
+                      description: |-
+                        ClientSecret is the secret of the OIDC client named by ClientID. When it
+                        is set, the KKP dashboard login uses this confidential client instead of
+                        the issuer client, so tokens issued for user clusters cannot log in to
+                        the KKP API. ClientID and IssuerClientID must then differ.
+                      type: string
                     issuerClientID:
                       type: string
                     issuerClientSecret:
@@ -7866,6 +7873,38 @@ spec:
                             This is intended for local or air-gapped setups where HTTPS is not available.
                           type: boolean
                       type: object
+                  type: object
+                userClusterTokens:
+                  description: |-
+                    UserClusterTokens configures the per-cluster kubeconfig tokens. Only used when the
+                    UserClusterTokenWebhook feature gate is enabled.
+                  properties:
+                    defaultLifetime:
+                      description: |-
+                        DefaultLifetime is the lifetime of a new token when the user does not ask for a
+                        shorter one. Defaults to 24h.
+                      type: string
+                    idleTimeout:
+                      description: |-
+                        IdleTimeout makes the webhook reject a token that was not used for this long.
+                        Defaults to 24h.
+                      type: string
+                    maxActivePerUserPerCluster:
+                      description: |-
+                        MaxActivePerUserPerCluster is how many unexpired tokens one user may hold for one
+                        cluster. Defaults to 10.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    maxLifetime:
+                      description: MaxLifetime is the longest lifetime a token may have. Defaults to 168h (7 days).
+                      type: string
+                    webhookCacheTTL:
+                      description: |-
+                        WebhookCacheTTL is how long kube-apiserver caches the webhook's answer for a token
+                        (--authentication-token-webhook-cache-ttl). It is the upper bound of the delay between
+                        a revocation and the token stopping to work. Defaults to 60s.
+                      type: string
                   type: object
                 util:
                   description: Util configures the shared util toolbox image.

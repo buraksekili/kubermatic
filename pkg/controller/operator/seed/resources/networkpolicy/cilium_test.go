@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/reconciler/pkg/reconciling"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -167,5 +168,55 @@ func TestSeedApiserverAllowReconcilerMigratesLegacyPolicy(t *testing.T) {
 
 	if rv := policy.GetResourceVersion(); rv != resourceVersion {
 		t.Fatalf("expected reconciliation after migration to be a no-op, but resourceVersion changed from %s to %s", resourceVersion, rv)
+	}
+}
+
+func TestTokenWebhookSeedApiserverAllowReconciler(t *testing.T) {
+	ctx := context.Background()
+
+	gvk := schema.GroupVersionKind{
+		Group:   "cilium.io",
+		Version: "v2",
+		Kind:    ciliumClusterwideNetworkPolicyKind,
+	}
+
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+
+	client := ctrlruntimefakeclient.NewClientBuilder().WithScheme(scheme).Build()
+
+	creators := []reconciling.NamedUnstructuredReconcilerFactory{
+		SeedApiserverAllowReconciler(),
+		TokenWebhookSeedApiserverAllowReconciler(),
+	}
+
+	if err := reconciling.ReconcileUnstructureds(ctx, creators, "", client); err != nil {
+		t.Fatalf("failed to create policies: %v", err)
+	}
+
+	for name, app := range map[string]string{
+		CiliumSeedApiserverAllow:             "apiserver",
+		CiliumTokenWebhookSeedApiserverAllow: tokenwebhook.Name,
+	} {
+		policy := &unstructured.Unstructured{}
+		policy.SetGroupVersionKind(gvk)
+		if err := client.Get(ctx, types.NamespacedName{Name: name}, policy); err != nil {
+			t.Fatalf("failed to get policy %s: %v", name, err)
+		}
+
+		matchLabels, _, _ := unstructured.NestedStringMap(policy.Object, "spec", "endpointSelector", "matchLabels")
+		if matchLabels["app"] != app {
+			t.Errorf("%s: expected matchLabels app=%s, got %v", name, app, matchLabels)
+		}
+
+		egress, _, _ := unstructured.NestedSlice(policy.Object, "spec", "egress")
+		if len(egress) != 1 {
+			t.Fatalf("%s: expected one egress rule, got %d", name, len(egress))
+		}
+		entities, _, _ := unstructured.NestedStringSlice(egress[0].(map[string]interface{}), "toEntities")
+		if len(entities) != 1 || entities[0] != "kube-apiserver" {
+			t.Errorf("%s: expected toEntities [kube-apiserver], got %v", name, entities)
+		}
 	}
 }

@@ -138,11 +138,46 @@ type KubermaticConfigurationSpec struct {
 	MirrorImages []string `json:"mirrorImages,omitempty"`
 	// Applications contains configuration for Application settings.
 	Applications ApplicationDefinitionsConfiguration `json:"applications,omitempty"`
+	// UserClusterTokens configures the per-cluster kubeconfig tokens. Only used when the
+	// UserClusterTokenWebhook feature gate is enabled.
+	UserClusterTokens KubermaticUserClusterTokensConfiguration `json:"userClusterTokens,omitempty"`
+}
+
+// KubermaticUserClusterTokensConfiguration configures the per-cluster kubeconfig tokens that
+// the KKP dashboard issues on "Export kubeconfig" and that a token webhook per user cluster
+// checks.
+type KubermaticUserClusterTokensConfiguration struct {
+	// DefaultLifetime is the lifetime of a new token when the user does not ask for a
+	// shorter one. Defaults to 24h.
+	// +optional
+	DefaultLifetime metav1.Duration `json:"defaultLifetime,omitempty"`
+	// MaxLifetime is the longest lifetime a token may have. Defaults to 168h (7 days).
+	// +optional
+	MaxLifetime metav1.Duration `json:"maxLifetime,omitempty"`
+	// IdleTimeout makes the webhook reject a token that was not used for this long.
+	// Defaults to 24h.
+	// +optional
+	IdleTimeout metav1.Duration `json:"idleTimeout,omitempty"`
+	// WebhookCacheTTL is how long kube-apiserver caches the webhook's answer for a token
+	// (--authentication-token-webhook-cache-ttl). It is the upper bound of the delay between
+	// a revocation and the token stopping to work. Defaults to 60s.
+	// +optional
+	WebhookCacheTTL metav1.Duration `json:"webhookCacheTTL,omitempty"`
+	// MaxActivePerUserPerCluster is how many unexpired tokens one user may hold for one
+	// cluster. Defaults to 10.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxActivePerUserPerCluster int32 `json:"maxActivePerUserPerCluster,omitempty"`
 }
 
 // KubermaticAuthConfiguration defines keys and URLs for Dex.
 type KubermaticAuthConfiguration struct {
-	ClientID                 string `json:"clientID,omitempty"`
+	ClientID string `json:"clientID,omitempty"`
+	// ClientSecret is the secret of the OIDC client named by ClientID. When it
+	// is set, the KKP dashboard login uses this confidential client instead of
+	// the issuer client, so tokens issued for user clusters cannot log in to
+	// the KKP API. ClientID and IssuerClientID must then differ.
+	ClientSecret             string `json:"clientSecret,omitempty"`
 	TokenIssuer              string `json:"tokenIssuer,omitempty"`
 	IssuerRedirectURL        string `json:"issuerRedirectURL,omitempty"`
 	IssuerClientID           string `json:"issuerClientID,omitempty"`

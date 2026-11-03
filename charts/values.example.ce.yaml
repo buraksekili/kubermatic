@@ -100,6 +100,14 @@ dex:
           - https://kkp.example.com/api/v2/kubeconfig/secret
           - https://kkp.example.com/api/v2/dashboard/login
           - https://kkp.example.com/api/v2/auth/callback
+      # Optional: a separate confidential client for dashboard login. Set
+      # "auth.clientID" and "auth.clientSecret" in the KubermaticConfiguration
+      # to this id and secret.
+      # - id: kubermatic
+      #   name: Kubermatic
+      #   secret: <another-random-key>
+      #   RedirectURIs:
+      #     - https://kkp.example.com/api/v2/auth/callback
 
 minio:
   storeSize: "500Gi"

@@ -27,6 +27,7 @@ import (
 
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	"k8c.io/kubermatic/v2/pkg/defaulting"
+	"k8c.io/kubermatic/v2/pkg/features"
 	"k8c.io/kubermatic/v2/pkg/version"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -50,6 +51,42 @@ func ValidateKubermaticConfigurationSpec(spec *kubermaticv1.KubermaticConfigurat
 	allErrs = append(allErrs, ValidateExternalGatewayConfiguration(spec)...)
 	allErrs = append(allErrs, validateGatewayTLSConfiguration(spec)...)
 	allErrs = append(allErrs, ValidateKeyConfiguration(spec.UserCluster.KeyConfiguration, field.NewPath("spec", "userCluster", "keyConfiguration"))...)
+	allErrs = append(allErrs, ValidateUserClusterTokenLoginClient(spec)...)
+
+	return allErrs
+}
+
+// ValidateUserClusterTokenLoginClient requires a separate OIDC client for the dashboard
+// login when the UserClusterTokenWebhook feature gate is on. With one shared client, an ID
+// token issued for user clusters is also a KKP API login, so it would reach the export
+// endpoint of every cluster its user can access.
+func ValidateUserClusterTokenLoginClient(spec *kubermaticv1.KubermaticConfigurationSpec) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if !spec.FeatureGates[features.UserClusterTokenWebhook] || spec.FeatureGates[features.HeadlessInstallation] {
+		return allErrs
+	}
+
+	authPath := field.NewPath("spec", "auth")
+
+	clientID := spec.Auth.ClientID
+	if clientID == "" {
+		clientID = defaulting.DefaultAuthClientID
+	}
+	issuerClientID := spec.Auth.IssuerClientID
+	if issuerClientID == "" {
+		issuerClientID = defaulting.DefaultAuthClientID
+	}
+
+	if clientID == issuerClientID {
+		allErrs = append(allErrs, field.Invalid(authPath.Child("clientID"), clientID,
+			fmt.Sprintf("must differ from spec.auth.issuerClientID (%q) when the %s feature gate is enabled; register a separate OIDC client for the dashboard login", issuerClientID, features.UserClusterTokenWebhook)))
+	}
+
+	if spec.Auth.ClientSecret == "" {
+		allErrs = append(allErrs, field.Required(authPath.Child("clientSecret"),
+			fmt.Sprintf("must be set to the secret of the OIDC client spec.auth.clientID when the %s feature gate is enabled", features.UserClusterTokenWebhook)))
+	}
 
 	return allErrs
 }

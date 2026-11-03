@@ -1,0 +1,137 @@
+# This file has been generated, DO NOT EDIT.
+
+metadata:
+  labels:
+    app: kkp-token-webhook
+  name: kkp-token-webhook
+  namespace: cluster-de-test-01
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kkp-token-webhook
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        fluentbit.io/parser: json_iso
+        kubermatic.k8c.io/last-restart: ""
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+      labels:
+        app: kkp-token-webhook
+        cluster: de-test-01
+        kkp-token-webhook-client-ca-secret-revision: "123456"
+        kkp-token-webhook-serving-cert-secret-revision: "123456"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: kkp-token-webhook
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: kkp-token-webhook
+              topologyKey: topology.kubernetes.io/zone
+            weight: 100
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - -cluster-id=de-test-01
+        - -cluster-uid=1234567890
+        - -namespace=cluster-de-test-01
+        - -listen-address=:8443
+        - -tls-cert-file=/etc/kkp-token-webhook/serving/serving.crt
+        - -tls-key-file=/etc/kkp-token-webhook/serving/serving.key
+        - -client-ca-file=/etc/kkp-token-webhook/client-ca/ca.crt
+        - -client-common-name=kkp-token-webhook-client
+        - -health-address=:8080
+        - -max-staleness=2m0s
+        - -idle-timeout=24h0m0s
+        - -last-used-update-interval=5m0s
+        - -log-format=json
+        command:
+        - kkp-token-webhook
+        image: quay.io/kubermatic/kkp-token-webhook:v0.1.0
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /healthz
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+        name: kkp-token-webhook
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        - containerPort: 8080
+          name: health
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: health
+            scheme: HTTP
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/kkp-token-webhook/serving
+          name: serving-cert
+          readOnly: true
+        - mountPath: /etc/kkp-token-webhook/client-ca
+          name: client-ca
+          readOnly: true
+      imagePullSecrets:
+      - name: dockercfg
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: kkp-token-webhook
+      volumes:
+      - name: serving-cert
+        secret:
+          items:
+          - key: serving.crt
+            path: serving.crt
+          - key: serving.key
+            path: serving.key
+          secretName: kkp-token-webhook-serving-cert
+      - name: client-ca
+        secret:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          secretName: kkp-token-webhook-client-ca
+status: {}

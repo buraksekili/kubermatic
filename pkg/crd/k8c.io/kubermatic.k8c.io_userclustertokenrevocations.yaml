@@ -1,0 +1,92 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+    kubermatic.k8c.io/location: master
+  name: userclustertokenrevocations.kubermatic.k8c.io
+spec:
+  group: kubermatic.k8c.io
+  names:
+    kind: UserClusterTokenRevocation
+    listKind: UserClusterTokenRevocationList
+    plural: userclustertokenrevocations
+    singular: userclustertokenrevocation
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.clusterID
+          name: Cluster
+          type: string
+        - jsonPath: .spec.seedName
+          name: Seed
+          type: string
+        - jsonPath: .spec.issuedBefore
+          name: IssuedBefore
+          type: date
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            UserClusterTokenRevocation revokes every token of one cluster, or of all clusters on one
+            seed, that was issued before a given time. KKP admins create it on the master, for example
+            after restoring a backup. It lives only on the master. The master synchronizer deletes
+            the matching UserClusterTokenIssuances, and with them their seed copies.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: |-
+                UserClusterTokenRevocationSpec selects the tokens to revoke. Exactly one of clusterID and
+                seedName must be set.
+              properties:
+                clusterID:
+                  description: ClusterID selects the tokens of one cluster.
+                  maxLength: 63
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  type: string
+                issuedBefore:
+                  description: IssuedBefore revokes tokens whose spec.issueTime is before this time.
+                  format: date-time
+                  type: string
+                reason:
+                  description: |-
+                    Reason is a free text note for other admins, for example the incident or restore it
+                    belongs to.
+                  maxLength: 512
+                  type: string
+                seedName:
+                  description: SeedName selects the tokens of all clusters on one seed.
+                  maxLength: 253
+                  type: string
+              required:
+                - issuedBefore
+              type: object
+              x-kubernetes-validations:
+                - message: exactly one of clusterID and seedName must be set
+                  rule: has(self.clusterID) != has(self.seedName)
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

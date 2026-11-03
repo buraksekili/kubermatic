@@ -22,6 +22,7 @@ import (
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	"k8c.io/kubermatic/sdk/v2/semver"
 	"k8c.io/kubermatic/v2/pkg/defaulting"
+	"k8c.io/kubermatic/v2/pkg/features"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -633,5 +634,71 @@ func TestValidateExternalGatewayConfigurationForbidsManagedGatewayFields(t *test
 		if !found {
 			t.Fatalf("expected forbidden error for %s, got %v", path, errs.ToAggregate())
 		}
+	}
+}
+
+func TestValidateUserClusterTokenLoginClient(t *testing.T) {
+	gateOn := map[string]bool{features.UserClusterTokenWebhook: true}
+
+	tests := []struct {
+		name       string
+		spec       kubermaticv1.KubermaticConfigurationSpec
+		wantFields []string
+	}{
+		{
+			name: "gate off, default shared client is accepted",
+			spec: kubermaticv1.KubermaticConfigurationSpec{},
+		},
+		{
+			name:       "gate on, defaults share one client and have no secret",
+			spec:       kubermaticv1.KubermaticConfigurationSpec{FeatureGates: gateOn},
+			wantFields: []string{"spec.auth.clientID", "spec.auth.clientSecret"},
+		},
+		{
+			name: "gate on, explicit equal client IDs with secret",
+			spec: kubermaticv1.KubermaticConfigurationSpec{FeatureGates: gateOn, Auth: kubermaticv1.KubermaticAuthConfiguration{
+				ClientID: "kkp", IssuerClientID: "kkp", ClientSecret: "s",
+			}},
+			wantFields: []string{"spec.auth.clientID"},
+		},
+		{
+			name: "gate on, only issuerClientID changed so the defaulted clientID differs, but no secret",
+			spec: kubermaticv1.KubermaticConfigurationSpec{FeatureGates: gateOn, Auth: kubermaticv1.KubermaticAuthConfiguration{
+				IssuerClientID: "clusters",
+			}},
+			wantFields: []string{"spec.auth.clientSecret"},
+		},
+		{
+			name: "gate on, separate login client",
+			spec: kubermaticv1.KubermaticConfigurationSpec{FeatureGates: gateOn, Auth: kubermaticv1.KubermaticAuthConfiguration{
+				ClientID: "kubermatic", IssuerClientID: "kubermaticIssuer", ClientSecret: "s",
+			}},
+		},
+		{
+			name: "gate on in a headless installation",
+			spec: kubermaticv1.KubermaticConfigurationSpec{FeatureGates: map[string]bool{
+				features.UserClusterTokenWebhook: true,
+				features.HeadlessInstallation:    true,
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateUserClusterTokenLoginClient(&tt.spec)
+
+			got := []string{}
+			for _, err := range errs {
+				got = append(got, err.Field)
+			}
+			if len(got) != len(tt.wantFields) {
+				t.Fatalf("expected errors on %v, got %v", tt.wantFields, errs)
+			}
+			for i := range got {
+				if got[i] != tt.wantFields[i] {
+					t.Fatalf("expected errors on %v, got %v", tt.wantFields, errs)
+				}
+			}
+		})
 	}
 }

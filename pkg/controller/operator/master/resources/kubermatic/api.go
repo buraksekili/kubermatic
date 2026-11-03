@@ -229,6 +229,10 @@ func APIDeploymentReconciler(cfg *kubermaticv1.KubermaticConfiguration, workerNa
 				fmt.Sprintf("-oidc-issuer-cookie-hash-key=%s", cfg.Spec.Auth.IssuerCookieKey),
 			}
 
+			if cfg.Spec.Auth.ClientSecret != "" {
+				args = append(args, fmt.Sprintf("-oidc-authenticator-client-secret=%s", cfg.Spec.Auth.ClientSecret))
+			}
+
 			if cfg.Spec.API.DebugLog {
 				args = append(args, "-v=4", "-log-debug=true")
 			} else {

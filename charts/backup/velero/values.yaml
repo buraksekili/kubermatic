@@ -59,6 +59,17 @@ velero:
         includeClusterResources: true
         includedNamespaces:
           - '*'
+        # Per-cluster kubeconfig tokens are not backed up. Restoring an old backup
+        # would bring back tokens that were revoked after it was taken, because the
+        # revocation is lost with the rollback. Leaving them out means a restore drops
+        # every per-cluster token and users export a new kubeconfig. The attributes are
+        # derived state that the seed-controller-manager rebuilds.
+        # Keep this list if you override the schedule or run your own Velero schedules.
+        excludedResources:
+          - userclustertokenissuances.kubermatic.k8c.io
+          - userclustertokenrevocations.kubermatic.k8c.io
+          - userclustertokens.kubermatic.k8c.io
+          - userclusterattributes.kubermatic.k8c.io
         snapshotVolumes: false
         ttl: 168h # 7 days
 

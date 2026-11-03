@@ -41,6 +41,7 @@ import (
 	"k8c.io/kubermatic/v2/pkg/resources/certificates"
 	metricsserver "k8c.io/kubermatic/v2/pkg/resources/metrics-server"
 	"k8c.io/kubermatic/v2/pkg/resources/reconciling/modifier"
+	tokenwebhook "k8c.io/kubermatic/v2/pkg/resources/token-webhook"
 	"k8c.io/kubermatic/v2/pkg/test/diff"
 	"k8c.io/kubermatic/v2/pkg/test/fake"
 	"k8c.io/kubermatic/v2/pkg/test/generator"
@@ -288,9 +289,10 @@ func checkTestResult(t *testing.T, resFile string, testObj interface{}) {
 }
 
 type testCase struct {
-	provider string
-	version  semverlib.Version
-	features map[string]bool
+	provider     string
+	version      semverlib.Version
+	features     map[string]bool
+	tokenWebhook bool
 }
 
 // name returns the name for the current test case.
@@ -311,6 +313,9 @@ func (tc testCase) name() string {
 	if features := tc.enabledFeatures(); len(features) > 0 {
 		name += "-" + features
 	}
+	if tc.tokenWebhook {
+		name += "-tokenwebhook"
+	}
 	return name
 }
 
@@ -319,6 +324,9 @@ func (tc testCase) fixturePath(resType, resName string) string {
 	path := fmt.Sprintf("%s-%s-%s-%s", resType, tc.provider, tc.version, resName)
 	if features := tc.enabledFeatures(); len(features) > 0 {
 		path += "-" + features
+	}
+	if tc.tokenWebhook {
+		path += "-tokenwebhook"
 	}
 	return path
 }
@@ -433,469 +441,494 @@ func TestLoadFiles(t *testing.T) {
 	for _, ver := range kubernetesVersions {
 		for prov, cloudspec := range cloudProviders {
 			for _, features := range featureSets {
-				tc := testCase{
-					provider: prov,
-					version:  *ver.Version,
-					features: features,
+				for _, tokenWebhook := range []bool{false, true} {
+					tc := testCase{
+						provider:     prov,
+						version:      *ver.Version,
+						features:     features,
+						tokenWebhook: tokenWebhook,
+					}
+					t.Run(tc.name(), func(t *testing.T) {
+						cluster := createClusterObject(*ver.Version, cloudspec, features)
+
+						caBundleConfigMap := &corev1.ConfigMap{
+							ObjectMeta: metav1.ObjectMeta{
+								ResourceVersion: "123456",
+								Name:            resources.CABundleConfigMapName,
+								Namespace:       cluster.Status.NamespaceName,
+							},
+						}
+
+						if features[kubermaticv1.ClusterFeatureExternalCloudProvider] && !resources.ExternalCloudControllerFeatureSupported(datacenter, &cluster.Spec.Cloud, cluster.Spec.Version) {
+							t.Log("Unsupported configuration")
+							return
+						}
+
+						dynamicClient := fake.
+							NewClientBuilder().
+							WithObjects(
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            metricsserver.ServingCertSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.TokensSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ServiceAccountKeySecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ApiserverTLSSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ApiserverAuthenticationConfigurationSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KubeletClientCertificatesSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.CASecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.OpenVPNCASecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ApiserverEtcdClientCertificateSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ApiserverFrontProxyClientCertificateSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.EtcdTLSCertificateSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.MachineControllerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.OperatingSystemManagerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.OperatingSystemManagerWebhookKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.OpenVPNServerCertificatesSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.OpenVPNClientCertificatesSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ControllerManagerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KubeStateMetricsKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.SchedulerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KubeletDnatControllerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.FrontProxyCASecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.MetricsServerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.PrometheusApiserverClientCertificateSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.MachineControllerWebhookServingCertSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.OperatingSystemManagerWebhookServingCertSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.InternalUserClusterAdminKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.UserClusterWebhookServingCertSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            tokenwebhook.ServingCertSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            tokenwebhook.ClientCASecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            tokenwebhook.KubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KubernetesDashboardKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.UserSSHKeys,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.GatekeeperWebhookServerCertSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.AdminKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.ClusterCloudCredentialsSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.CloudControllerManagerKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.CloudConfigSeedSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.GoogleServiceAccountSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.CSICloudConfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.VMwareCloudDirectorCSISecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.VMwareCloudDirectorCSIKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KonnectivityKubeconfigSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Secret{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KonnectivityProxyTLSSecretName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								caBundleConfigMap,
+								&corev1.ConfigMap{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.PrometheusConfigConfigMapName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.ConfigMap{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.DNSResolverConfigMapName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.ConfigMap{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.AuditConfigMapName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.ConfigMap{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.AdmissionControlConfigMapName,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.ConfigMap{
+									ObjectMeta: metav1.ObjectMeta{
+										ResourceVersion: "123456",
+										Name:            resources.KonnectivityKubeApiserverEgress,
+										Namespace:       cluster.Status.NamespaceName,
+									},
+								},
+								&corev1.Service{
+									ObjectMeta: metav1.ObjectMeta{
+										Name:      resources.ApiserverServiceName,
+										Namespace: cluster.Status.NamespaceName,
+									},
+									Spec: corev1.ServiceSpec{
+										Ports: []corev1.ServicePort{
+											{
+												NodePort: 30000,
+											},
+										},
+										ClusterIP: "192.0.2.10",
+									},
+								},
+								&corev1.Service{
+									ObjectMeta: metav1.ObjectMeta{
+										Name:      resources.OpenVPNServerServiceName,
+										Namespace: cluster.Status.NamespaceName,
+									},
+									Spec: corev1.ServiceSpec{
+										Ports: []corev1.ServicePort{
+											{
+												NodePort: 30003,
+											},
+										},
+										ClusterIP: "192.0.2.13",
+									},
+								},
+								&corev1.Service{
+									ObjectMeta: metav1.ObjectMeta{
+										Name:      resources.DNSResolverServiceName,
+										Namespace: cluster.Status.NamespaceName,
+									},
+									Spec: corev1.ServiceSpec{
+										Ports: []corev1.ServicePort{
+											{
+												NodePort: 30003,
+											},
+										},
+										ClusterIP: "192.0.2.14",
+									},
+								},
+								&corev1.Service{
+									ObjectMeta: metav1.ObjectMeta{
+										Name:      resources.MLAGatewayExternalServiceName,
+										Namespace: cluster.Status.NamespaceName,
+									},
+									Spec: corev1.ServiceSpec{
+										Ports: []corev1.ServicePort{
+											{
+												NodePort: 30005,
+											},
+										},
+										ClusterIP: "192.0.2.15",
+									},
+								},
+								&corev1.Service{
+									ObjectMeta: metav1.ObjectMeta{
+										Name:      resources.KonnectivityProxyServiceName,
+										Namespace: cluster.Status.NamespaceName,
+									},
+									Spec: corev1.ServiceSpec{
+										Ports: []corev1.ServicePort{
+											{
+												Port:       443,
+												Protocol:   corev1.ProtocolTCP,
+												TargetPort: intstr.FromInt32(8132),
+											},
+										},
+									},
+								},
+							).
+							Build()
+
+						var group wait.Group
+						defer group.Wait()
+						stopCh := make(chan struct{})
+						defer func() {
+							close(stopCh)
+						}()
+
+						cbsl := &kubermaticv1.ClusterBackupStorageLocation{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "my-backup-location",
+								Namespace: resources.KubermaticNamespace,
+							},
+							Spec: velerov1.BackupStorageLocationSpec{
+								Credential: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "my-backup-location-secret", // does not exist in this testcase, doesn't matter
+									},
+								},
+							},
+						}
+
+						ctx := context.Background()
+						data := resources.NewTemplateDataBuilder().
+							WithContext(ctx).
+							WithClient(dynamicClient).
+							WithCluster(cluster).
+							WithDatacenter(datacenter).
+							WithKubermaticConfiguration(defaultedConfig).
+							WithSeed(defaultedSeed).
+							WithNodeAccessNetwork("192.0.2.0/24").
+							WithEtcdDiskSize(resource.MustParse("5Gi")).
+							WithBackupPeriod(20 * time.Minute).
+							WithUserClusterMLAEnabled(true).
+							WithCABundle(caBundle).
+							WithOIDCIssuerURL("https://dev.kubermatic.io/dex").
+							WithOIDCIssuerClientID("kubermaticIssuer").
+							WithOIDCAuthenticationFeatureEnabled(true).
+							WithKubermaticImage("quay.io/kubermatic/kubermatic").
+							WithEtcdLauncherImage("quay.io/kubermatic/etcd-launcher").
+							WithDnatControllerImage("quay.io/kubermatic/kubeletdnat-controller").
+							WithNetworkIntfMgrImage("quay.io/kubermatic/network-interface-manager").
+							WithVersions(kubermaticVersions).
+							WithFailureDomainZoneAntiaffinity(true).
+							WithKonnectivityEnabled(true).
+							WithClusterBackupStorageLocation(cbsl).
+							WithUserClusterTokenWebhook(tc.tokenWebhook).
+							Build()
+
+						generateAndVerifyResources(t, ctx, dynamicClient, data, tc, markFixtureUsed, kubermaticVersions)
+					})
 				}
-				t.Run(tc.name(), func(t *testing.T) {
-					cluster := createClusterObject(*ver.Version, cloudspec, features)
-
-					caBundleConfigMap := &corev1.ConfigMap{
-						ObjectMeta: metav1.ObjectMeta{
-							ResourceVersion: "123456",
-							Name:            resources.CABundleConfigMapName,
-							Namespace:       cluster.Status.NamespaceName,
-						},
-					}
-
-					if features[kubermaticv1.ClusterFeatureExternalCloudProvider] && !resources.ExternalCloudControllerFeatureSupported(datacenter, &cluster.Spec.Cloud, cluster.Spec.Version) {
-						t.Log("Unsupported configuration")
-						return
-					}
-
-					dynamicClient := fake.
-						NewClientBuilder().
-						WithObjects(
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            metricsserver.ServingCertSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.TokensSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ServiceAccountKeySecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ApiserverTLSSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ApiserverAuthenticationConfigurationSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KubeletClientCertificatesSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.CASecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.OpenVPNCASecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ApiserverEtcdClientCertificateSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ApiserverFrontProxyClientCertificateSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.EtcdTLSCertificateSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.MachineControllerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.OperatingSystemManagerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.OperatingSystemManagerWebhookKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.OpenVPNServerCertificatesSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.OpenVPNClientCertificatesSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ControllerManagerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KubeStateMetricsKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.SchedulerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KubeletDnatControllerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.FrontProxyCASecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.MetricsServerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.PrometheusApiserverClientCertificateSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.MachineControllerWebhookServingCertSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.OperatingSystemManagerWebhookServingCertSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.InternalUserClusterAdminKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.UserClusterWebhookServingCertSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KubernetesDashboardKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.UserSSHKeys,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.GatekeeperWebhookServerCertSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.AdminKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.ClusterCloudCredentialsSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.CloudControllerManagerKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.CloudConfigSeedSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.GoogleServiceAccountSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.CSICloudConfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.VMwareCloudDirectorCSISecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.VMwareCloudDirectorCSIKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KonnectivityKubeconfigSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Secret{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KonnectivityProxyTLSSecretName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							caBundleConfigMap,
-							&corev1.ConfigMap{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.PrometheusConfigConfigMapName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.ConfigMap{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.DNSResolverConfigMapName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.ConfigMap{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.AuditConfigMapName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.ConfigMap{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.AdmissionControlConfigMapName,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.ConfigMap{
-								ObjectMeta: metav1.ObjectMeta{
-									ResourceVersion: "123456",
-									Name:            resources.KonnectivityKubeApiserverEgress,
-									Namespace:       cluster.Status.NamespaceName,
-								},
-							},
-							&corev1.Service{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      resources.ApiserverServiceName,
-									Namespace: cluster.Status.NamespaceName,
-								},
-								Spec: corev1.ServiceSpec{
-									Ports: []corev1.ServicePort{
-										{
-											NodePort: 30000,
-										},
-									},
-									ClusterIP: "192.0.2.10",
-								},
-							},
-							&corev1.Service{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      resources.OpenVPNServerServiceName,
-									Namespace: cluster.Status.NamespaceName,
-								},
-								Spec: corev1.ServiceSpec{
-									Ports: []corev1.ServicePort{
-										{
-											NodePort: 30003,
-										},
-									},
-									ClusterIP: "192.0.2.13",
-								},
-							},
-							&corev1.Service{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      resources.DNSResolverServiceName,
-									Namespace: cluster.Status.NamespaceName,
-								},
-								Spec: corev1.ServiceSpec{
-									Ports: []corev1.ServicePort{
-										{
-											NodePort: 30003,
-										},
-									},
-									ClusterIP: "192.0.2.14",
-								},
-							},
-							&corev1.Service{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      resources.MLAGatewayExternalServiceName,
-									Namespace: cluster.Status.NamespaceName,
-								},
-								Spec: corev1.ServiceSpec{
-									Ports: []corev1.ServicePort{
-										{
-											NodePort: 30005,
-										},
-									},
-									ClusterIP: "192.0.2.15",
-								},
-							},
-							&corev1.Service{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      resources.KonnectivityProxyServiceName,
-									Namespace: cluster.Status.NamespaceName,
-								},
-								Spec: corev1.ServiceSpec{
-									Ports: []corev1.ServicePort{
-										{
-											Port:       443,
-											Protocol:   corev1.ProtocolTCP,
-											TargetPort: intstr.FromInt32(8132),
-										},
-									},
-								},
-							},
-						).
-						Build()
-
-					var group wait.Group
-					defer group.Wait()
-					stopCh := make(chan struct{})
-					defer func() {
-						close(stopCh)
-					}()
-
-					cbsl := &kubermaticv1.ClusterBackupStorageLocation{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "my-backup-location",
-							Namespace: resources.KubermaticNamespace,
-						},
-						Spec: velerov1.BackupStorageLocationSpec{
-							Credential: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "my-backup-location-secret", // does not exist in this testcase, doesn't matter
-								},
-							},
-						},
-					}
-
-					ctx := context.Background()
-					data := resources.NewTemplateDataBuilder().
-						WithContext(ctx).
-						WithClient(dynamicClient).
-						WithCluster(cluster).
-						WithDatacenter(datacenter).
-						WithKubermaticConfiguration(defaultedConfig).
-						WithSeed(defaultedSeed).
-						WithNodeAccessNetwork("192.0.2.0/24").
-						WithEtcdDiskSize(resource.MustParse("5Gi")).
-						WithBackupPeriod(20 * time.Minute).
-						WithUserClusterMLAEnabled(true).
-						WithCABundle(caBundle).
-						WithOIDCIssuerURL("https://dev.kubermatic.io/dex").
-						WithOIDCIssuerClientID("kubermaticIssuer").
-						WithOIDCAuthenticationFeatureEnabled(true).
-						WithKubermaticImage("quay.io/kubermatic/kubermatic").
-						WithEtcdLauncherImage("quay.io/kubermatic/etcd-launcher").
-						WithDnatControllerImage("quay.io/kubermatic/kubeletdnat-controller").
-						WithNetworkIntfMgrImage("quay.io/kubermatic/network-interface-manager").
-						WithVersions(kubermaticVersions).
-						WithFailureDomainZoneAntiaffinity(true).
-						WithKonnectivityEnabled(true).
-						WithClusterBackupStorageLocation(cbsl).
-						Build()
-
-					generateAndVerifyResources(t, ctx, dynamicClient, data, tc, markFixtureUsed, kubermaticVersions)
-				})
 			}
 		}
 	}

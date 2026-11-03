@@ -25,9 +25,15 @@ import (
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
 	"k8c.io/kubermatic/v2/pkg/version/kubermatic"
 
+	"k8c.io/kubermatic/v2/pkg/resources"
+	"k8c.io/reconciler/pkg/reconciling"
+
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	ctrlruntimefakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func newTestWebhookConfig() *kubermaticv1.KubermaticConfiguration {
@@ -198,4 +204,54 @@ func webhookAssertScheduling(t *testing.T, spec corev1.PodSpec, want *kubermatic
 	assert.Equal(t, want.Affinity, spec.Affinity, "Affinity")
 	assert.Equal(t, want.Tolerations, spec.Tolerations, "Tolerations")
 	assert.Equal(t, want.TopologySpreadConstraints, spec.TopologySpreadConstraints, "TopologySpreadConstraints")
+}
+
+func TestValidatingWebhooksSelectKKPNamespace(t *testing.T) {
+	cfg := newTestWebhookConfig()
+	client := ctrlruntimefakeclient.NewClientBuilder().WithObjects(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      WebhookServingCASecretName,
+			Namespace: cfg.Namespace,
+		},
+		Data: map[string][]byte{resources.CACertSecretKey: []byte("ca")},
+	}).Build()
+
+	// labels of the KKP namespace on an upgraded install: only the apiserver
+	// default label and the gateway label, no app.kubernetes.io/name
+	kkpNamespaceLabels := labels.Set{
+		corev1.LabelMetadataName: cfg.Namespace,
+		GatewayAccessLabelKey:    GatewayAccessLabelValue,
+	}
+	otherNamespaceLabels := labels.Set{
+		corev1.LabelMetadataName: "default",
+	}
+
+	tests := []struct {
+		name    string
+		factory reconciling.NamedValidatingWebhookConfigurationReconcilerFactory
+	}{
+		{
+			name:    "seeds",
+			factory: SeedAdmissionWebhookReconciler(t.Context(), cfg, client),
+		},
+		{
+			name:    "kubermaticconfigurations",
+			factory: KubermaticConfigurationAdmissionWebhookReconciler(t.Context(), cfg, client),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, reconcile := tt.factory()
+			hook, err := reconcile(&admissionregistrationv1.ValidatingWebhookConfiguration{})
+			require.NoError(t, err)
+			require.Len(t, hook.Webhooks, 1)
+
+			selector, err := metav1.LabelSelectorAsSelector(hook.Webhooks[0].NamespaceSelector)
+			require.NoError(t, err)
+
+			assert.True(t, selector.Matches(kkpNamespaceLabels), "webhook must run for objects in the KKP namespace")
+			assert.False(t, selector.Matches(otherNamespaceLabels), "webhook must not run for objects in other namespaces")
+		})
+	}
 }

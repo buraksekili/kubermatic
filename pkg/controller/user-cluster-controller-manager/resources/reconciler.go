@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"regexp"
 	"strings"
+	"time"
 
 	appskubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/apps.kubermatic/v1"
 	kubermaticv1 "k8c.io/kubermatic/sdk/v2/apis/kubermatic/v1"
@@ -72,6 +74,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -311,6 +314,10 @@ func (r *reconciler) reconcile(ctx context.Context) error {
 	// binding in every user cluster. Newer versions no longer create it, so remove
 	// it from all clusters that still have it.
 	if err := r.ensureExternalAdminUserIsRemoved(ctx); err != nil {
+		return err
+	}
+
+	if err := r.ensureLeftoverWebTerminalSecretsAreRemoved(ctx, time.Now()); err != nil {
 		return err
 	}
 
@@ -1538,6 +1545,90 @@ func (r *reconciler) ensureExternalAdminUserIsRemoved(ctx context.Context) error
 		}
 	}
 	return nil
+}
+
+// webTerminalSecretName matches the kubeconfig Secrets the KKP API writes for
+// the web terminal, "kubeconfig-<md5 of the user email>".
+var webTerminalSecretName = regexp.MustCompile(`^kubeconfig-([0-9a-f]{32})$`)
+
+// webTerminalSecretGracePeriod covers the time between the API writing the Secret
+// and the terminal pod mounting it; the websocket waits up to 5 minutes for the pod.
+const webTerminalSecretGracePeriod = 15 * time.Minute
+
+// ensureLeftoverWebTerminalSecretsAreRemoved deletes web terminal kubeconfig
+// Secrets that no running terminal pod mounts anymore. Older KKP versions left
+// them behind after the terminal expired, still holding a valid OIDC token.
+func (r *reconciler) ensureLeftoverWebTerminalSecretsAreRemoved(ctx context.Context, now time.Time) error {
+	secrets := &corev1.SecretList{}
+	if err := r.List(ctx, secrets, ctrlruntimeclient.InNamespace(metav1.NamespaceSystem)); err != nil {
+		return fmt.Errorf("failed to list Secrets in namespace %s: %w", metav1.NamespaceSystem, err)
+	}
+
+	var errs []error
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+
+		match := webTerminalSecretName.FindStringSubmatch(secret.Name)
+		if match == nil {
+			continue
+		}
+		if _, ok := secret.Annotations["user"]; !ok {
+			continue
+		}
+		if now.Sub(lastWriteTime(secret)) < webTerminalSecretGracePeriod {
+			continue
+		}
+
+		inUse, err := r.webTerminalPodMountsSecret(ctx, "webterminal-"+match[1], secret.Name)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if inUse {
+			continue
+		}
+
+		// a Conflict means the API rewrote the Secret after we listed it, so it is in use again.
+		err = r.Delete(ctx, secret, ctrlruntimeclient.Preconditions{ResourceVersion: &secret.ResourceVersion})
+		if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+			errs = append(errs, fmt.Errorf("failed to delete web terminal Secret %s/%s: %w", secret.Namespace, secret.Name, err))
+		}
+	}
+
+	return kerrors.NewAggregate(errs)
+}
+
+// lastWriteTime returns the newest of the creation time and the managedFields
+// times. The API updates the Secret in place, which keeps the creation time.
+func lastWriteTime(obj metav1.Object) time.Time {
+	last := obj.GetCreationTimestamp().Time
+	for _, entry := range obj.GetManagedFields() {
+		if entry.Time != nil && entry.Time.After(last) {
+			last = entry.Time.Time
+		}
+	}
+
+	return last
+}
+
+// webTerminalPodMountsSecret uses the uncached reader, so the manager does not
+// start a cluster-wide Pod informer just for this check.
+func (r *reconciler) webTerminalPodMountsSecret(ctx context.Context, podName, secretName string) (bool, error) {
+	pod := &corev1.Pod{}
+	if err := r.apiReader.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceSystem, Name: podName}, pod); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get web terminal Pod %s/%s: %w", metav1.NamespaceSystem, podName, err)
+	}
+
+	for _, volume := range pod.Spec.Volumes {
+		if volume.Secret != nil && volume.Secret.SecretName == secretName {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (r *reconciler) getUserClusterMonitoringAgentCustomScrapeConfigs(ctx context.Context) (string, error) {

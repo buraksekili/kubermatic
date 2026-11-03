@@ -31,9 +31,14 @@ import (
 
 const (
 	CiliumSeedApiserverAllow = "cilium-seed-apiserver-allow"
+	// CiliumTokenWebhookSeedApiserverAllow lets the per-cluster kkp-token-webhook
+	// pods reach the seed kube-apiserver (informers, lastUsedTime patches).
+	CiliumTokenWebhookSeedApiserverAllow = "cilium-kkp-token-webhook-seed-apiserver-allow"
 
 	ciliumClusterwideNetworkPolicyKind       = "CiliumClusterwideNetworkPolicy"
 	ciliumClusterwideNetworkPolicyAPIVersion = "cilium.io/v2"
+
+	tokenWebhookAppLabel = "kkp-token-webhook"
 )
 
 // SeedApiserverAllowReconciler returns the reconciler for the CiliumClusterwideNetworkPolicy
@@ -44,12 +49,23 @@ const (
 // apimachinery's semantic DeepEqual (used by all client-side create-or-update helpers)
 // either panic or never converge.
 func SeedApiserverAllowReconciler() reconciling.NamedUnstructuredReconcilerFactory {
+	return kubeAPIServerEgressReconciler(CiliumSeedApiserverAllow, "apiserver")
+}
+
+// TokenWebhookSeedApiserverAllowReconciler is the same policy for the kkp-token-webhook
+// pods. On Cilium a plain NetworkPolicy ipBlock does not match the kube-apiserver
+// entity, so the webhook's namespaced egress policy alone leaves it unable to start.
+func TokenWebhookSeedApiserverAllowReconciler() reconciling.NamedUnstructuredReconcilerFactory {
+	return kubeAPIServerEgressReconciler(CiliumTokenWebhookSeedApiserverAllow, tokenWebhookAppLabel)
+}
+
+func kubeAPIServerEgressReconciler(name, app string) reconciling.NamedUnstructuredReconcilerFactory {
 	return func() (string, string, string, reconciling.UnstructuredReconciler) {
-		return CiliumSeedApiserverAllow, ciliumClusterwideNetworkPolicyKind, ciliumClusterwideNetworkPolicyAPIVersion, func(policy *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+		return name, ciliumClusterwideNetworkPolicyKind, ciliumClusterwideNetworkPolicyAPIVersion, func(policy *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 			policy.Object["spec"] = map[string]interface{}{
 				"endpointSelector": map[string]interface{}{
 					"matchLabels": map[string]interface{}{
-						"app": "apiserver",
+						"app": app,
 					},
 				},
 				"egress": []interface{}{
