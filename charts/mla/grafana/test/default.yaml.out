@@ -51,13 +51,6 @@ data:
     apiVersion: 1
     providers:
     - disableDeletion: false
-      folder: ""
-      name: default
-      options:
-        path: /var/lib/grafana/dashboards/default
-      org_id: 1
-      type: file
-    - disableDeletion: false
       folder: Kubernetes
       name: kubernetes
       options:
@@ -4991,7 +4984,7 @@ spec:
         app.kubernetes.io/instance: release-name
         app.kubernetes.io/version: "13.0.12"
       annotations:
-        checksum/config: f6f99f271bc8b8a28ddc424e5abfafb2d5a85eb1a43bfa910b8fa844372c76ee
+        checksum/config: 279d6b2c6f7faa9e1de193c1c6d6db93634ba802679831e110c0f70f05c5b755
         checksum/dashboards-json-config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
         checksum/sc-dashboard-provider-config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
         kubectl.kubernetes.io/default-container: grafana
