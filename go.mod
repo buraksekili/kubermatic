@@ -101,8 +101,8 @@ require (
 	k8c.io/application-catalog-manager v0.0.0-00010101000000-000000000000
 	k8c.io/kubeone v1.12.3
 	k8c.io/kubermatic/sdk/v2 v2.28.1
-	k8c.io/machine-controller/sdk v1.66.5
-	k8c.io/operating-system-manager v1.11.4
+	k8c.io/machine-controller/sdk v1.67.1-0.20261116192522-220cb752d1e1
+	k8c.io/operating-system-manager v1.12.1-0.20261116190922-2271b5b79f6e
 	k8c.io/reconciler v0.5.0
 	k8s.io/api v0.37.0
 	k8s.io/apiextensions-apiserver v0.37.0
