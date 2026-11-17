@@ -52,7 +52,7 @@ var controllerResourceRequirements = map[string]*corev1.ResourceRequirements{
 
 const (
 	Name = "machine-controller"
-	Tag  = "v1.64.5"
+	Tag  = "v1.64.4"
 )
 
 type machinecontrollerData interface {
